@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Event Schedule Timeline</title>
+
+  <!-- Google Charts + PapaParse -->
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <!-- Font -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg-navy:#0f1f3a; --panel:#1c2a55; --border:#394c7a; --text:#f5f5f5;
+      --accent:#2196f3; --chart-bg:#ffffff;
+    }
+    body{margin:0;font-family:'Poppins',sans-serif;background:var(--bg-navy);color:var(--text);}
+    .container{max-width:95vw;margin:0 auto;padding:24px;}
+    h1{font-size:1.6rem;font-weight:600;margin:0 0 12px 0;}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;}
+    .controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;}
+    label{font-size:.9rem;opacity:.85}
+    input[type="file"],input[type="date"]{
+      background:var(--panel);border:1px solid var(--border);color:var(--text);
+      padding:6px 10px;border-radius:6px;font:inherit;font-size:.85rem;
+    }
+    input[type="file"]::-webkit-file-upload-button{
+      background:var(--accent);color:#fff;border:none;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:.8rem;
+    }
+    button{
+      background:var(--accent);color:#fff;border:none;padding:6px 12px;border-radius:6px;
+      font-size:.85rem;cursor:pointer;transition:.18s ease;
+    }
+    button:hover{filter:brightness(1.08)}
+    button.secondary{background:transparent;border:1px solid var(--border);}
+    #timeline-wrapper{background:var(--chart-bg);border-radius:10px;padding:10px;margin-top:8px;}
+
+    #timeline{
+      width:100%;
+      height:70vh;
+      min-height:400px;
+    }
+
+    .google-visualization-tooltip,
+    .google-visualization-tooltip *{
+      color:#000 !important;background:#fff !important;
+      font-family:'Poppins',sans-serif !important;font-size:12px !important;
+    }
+    .google-visualization-tooltip{
+      border:1px solid #cfcfcf !important;box-shadow:0 6px 18px rgba(0,0,0,.15) !important;border-radius:6px !important;
+    }
+
+    .spacer{flex:1}
+    .group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+    #timeline text { font-weight: 400 !important; }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Event Schedule Timeline</h1>
+    <div class="card">
+      <div class="controls">
+        <div class="group">
+          <label for="csvFile">Upload CSV</label>
+          <input type="file" id="csvFile" accept=".csv" />
+        </div>
+        <div class="spacer"></div>
+        <div class="group">
+          <label for="dayPicker">Day</label>
+          <input type="date" id="dayPicker" />
+          <button id="prevDay" class="secondary">⬅ Prev</button>
+          <button id="nextDay">Next ➡</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="group">
+          <button id="toggleShowRooms" class="secondary">Show All Rooms</button>
+        </div>
+      </div>
+      <div id="timeline-wrapper">
+        <div id="timeline"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    google.charts.load("current", { packages: ["timeline"] });
+
+    let allEvents = [];
+    let currentDate = null;
+    let showAllRooms = false;
+
+    const ROOM_ORDER = [
+      "Whitley Ballroom","Whitley Prefunction",
+      "Salon I","Salon II","Salon III","Salon IV","Salon V","Salon VI","Salon VII","Salon VIII",
+      "Plaza Ballroom","Plaza Prefunction","Plaza I","Plaza II","Plaza III",
+      "Gallery","Gallery Prefunction","Gallery I","Gallery II",
+      "Legacy Ballroom","Legacy Prefunction","Legacy I","Legacy II",
+      "Ambassador","Attache","Boardroom","Charge","Consulate","Delegate","Diplomat","Director's Room",
+      "Envoy","The Founders Room"
+    ];
+
+    const SUBORDER = {
+      "Whitley Ballroom": ["Salon I","Salon II","Salon III","Salon IV","Salon V","Salon VI","Salon VII","Salon VIII"],
+      "Plaza Ballroom":   ["Plaza I","Plaza II","Plaza III"],
+      "Legacy Ballroom":  ["Legacy I","Legacy II"],
+      "Gallery":          ["Gallery I","Gallery II"]
+    };
+    const PARENT_MAP = {};
+    Object.entries(SUBORDER).forEach(([parent, subs])=>{
+      subs.forEach(s => { PARENT_MAP[s] = parent; });
+    });
+
+    function condenseSubs(list){
+      if(!list.length) return "";
+      const m = list[0].match(/^([A-Za-z]+(?:\s[A-Za-z]+)?)\s+/);
+      let prefix = m ? m[1] + " " : "";
+      if(prefix && !list.every(x => x.startsWith(prefix))) prefix = "";
+      if(!prefix) return list.join(", ");
+      const rest = list.map(x => x.slice(prefix.length)).join(", ");
+      return prefix + rest;
+    }
+
+    function normalizeRooms(raw){
+      if(!raw) return [];
+      let s = String(raw).trim();
+      if(s==="The Whitley Ballroom") s="Whitley Ballroom";
+      if(s==="The Gallery") s="Gallery";
+      if(s==="Plaza") s="Plaza Ballroom";
+      if(s==="Founder's Room" || s==="Founders Room") s="The Founders Room";
+      if(s==="Legacy Ballroom I") s="Legacy I";
+      if(s==="Legacy Ballroom II") s="Legacy II";
+      if(s==="Prefunction") return ["Whitley Prefunction"];
+
+      if(s.includes("(") && s.includes(")")){
+        const inner = s.slice(s.indexOf("(")+1, s.lastIndexOf(")")).trim();
+        if(inner) return inner.split(",").map(x=>x.trim());
+      }
+      if(s.includes(",")) return s.split(",").map(p=>p.trim());
+      return [s];
+    }
+
+    function groupRoomsToLabels(rooms){
+      const byBase = new Map();
+      rooms.forEach(r=>{
+        const base = PARENT_MAP[r] || r;
+        const isSub = !!PARENT_MAP[r];
+        if(!byBase.has(base)) byBase.set(base, {base, subs:new Set()});
+        if(isSub) byBase.get(base).subs.add(r);
+      });
+
+      const out = [];
+      for(const {base,subs} of byBase.values()){
+        if(subs.size>0){
+          const all = SUBORDER[base] || [];
+          if(subs.size === all.length){
+            out.push({label: base, base});
+          }else{
+            let list = Array.from(subs);
+            if(all.length) list.sort((a,b)=>all.indexOf(a)-all.indexOf(b));
+            const condensed = condenseSubs(list);
+            out.push({label: `${base} (${condensed})`, base});
+          }
+        }else{
+          out.push({label: base, base});
+        }
+      }
+      return out;
+    }
+
+    function parseDayOfEvent(str){
+      if(!str) return null;
+      let d = new Date(str);
+      if(isNaN(d)) d = new Date(str.replace(/^[A-Za-z]+,\s*/,""));
+      return isNaN(d) ? null : d;
+    }
+
+    function parseTime(str){
+      if(!str) return [0,0];
+      const parts = String(str).trim().split(" ");
+      const timePart = parts[0]||"0:00";
+      const mod = (parts[1]||"").toUpperCase();
+      const hhmm = timePart.split(":");
+      let h = Number(hhmm[0]||0), m = Number(hhmm[1]||0);
+      if(mod==="PM" && h<12) h+=12;
+      if(mod==="AM" && h===12) h=0;
+      return [h,m];
+    }
+    function formatAMPM(d){
+      let h=d.getHours(),m=d.getMinutes(),ampm=h>=12?"PM":"AM";
+      h=h%12; h=h?h:12; m=m<10?"0"+m:m;
+      return `${h}:${m} ${ampm}`;
+    }
+    function floorToHour(d){const x=new Date(d);x.setMinutes(0,0,0);return x;}
+    function ceilToHour(d){const x=new Date(d);x.setMinutes(0,0,0);if(d>x)x.setHours(x.getHours()+1);return x;}
+    function toLocalISODate(d){
+      return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    }
+    function sameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
+
+    // Tooltip with status included
+    function groupTooltip(room, items, status){
+      items.sort((a,b)=>a.start-b.start);
+      let html=`<div style="padding:6px; color:#000;">`;
+      if(items[0]?.event) html+=`<div style="font-weight:700; margin-bottom:4px;">${items[0].event}</div>`;
+      if(status) html+=`<div style="margin-bottom:6px"><span style="padding:2px 6px;border-radius:6px;background:#eef;border:1px solid #ccd">${status}</span></div>`;
+      html+=`<div style="font-weight:600; margin-bottom:4px;">${room}</div>`;
+      items.forEach(e=>{
+        const time=`${formatAMPM(e.start)} – ${formatAMPM(e.end)}`;
+        html+=`<div><b>${e.function||""}</b> · ${time} · ${e.setup||""}</div>`;
+      });
+      html+=`</div>`;
+      return html;
+    }
+    function drawChart(selectedDate){
+      const container=document.getElementById("timeline");
+      const chart=new google.visualization.Timeline(container);
+      const dataTable=new google.visualization.DataTable();
+
+      dataTable.addColumn({type:"string",id:"Room"});
+      dataTable.addColumn({type:"string",id:"Label"});
+      dataTable.addColumn({type:"string",role:"tooltip",p:{html:true}});
+      dataTable.addColumn({type:"string",role:"style"});
+      dataTable.addColumn({type:"date",id:"Start"});
+      dataTable.addColumn({type:"date",id:"End"});
+
+      const chosen=new Date(selectedDate+"T00:00:00");
+      currentDate=chosen;
+
+      const groups={};
+      let dataMin=null, dataMax=null;
+
+      allEvents.forEach(ev=>{
+        const d=parseDayOfEvent(ev["Day of Event"]); if(!d) return;
+        const status=(ev["Event Status"]||"").toString().trim();
+        const [sh,sm]=parseTime(ev["Start Time"]);
+        const [eh,em]=parseTime(ev["End Time"]);
+        let start=new Date(d.getFullYear(),d.getMonth(),d.getDate(),sh,sm);
+        let end=new Date(d.getFullYear(),d.getMonth(),d.getDate(),eh,em);
+        const rooms=normalizeRooms(ev["Function Space"]);
+        const company=ev["Company Name"]||"";
+        const eventName=ev["Event Name"]||"";
+
+        const labels = groupRoomsToLabels(rooms);
+
+        // Overnight split
+        if(end < start){
+          const midnight=new Date(start); midnight.setHours(23,59,59,999);
+          const nextDay=new Date(d); nextDay.setDate(d.getDate()+1);
+          const endNext=new Date(nextDay.getFullYear(),nextDay.getMonth(),nextDay.getDate(),eh,em);
+
+          labels.forEach(({label,base})=>{
+            if(sameDay(d,chosen)){
+              const key=label+"||"+company+"||"+status+"||"+d.toDateString();
+              if(!groups[key]) groups[key]={roomLabel:label,base,company,status,items:[],min:start,max:midnight};
+              groups[key].items.push({event:eventName,function:ev["Function Type"],setup:ev["Setup Style"],start,end:midnight});
+              if(start<groups[key].min)groups[key].min=start;
+              if(midnight>groups[key].max)groups[key].max=midnight;
+              if(!dataMin||start<dataMin)dataMin=start;
+              if(!dataMax||midnight>dataMax)dataMax=midnight;
+            }
+            if(sameDay(nextDay,chosen)){
+              const key=label+"||"+company+"||"+status+"||"+nextDay.toDateString();
+              if(!groups[key]) groups[key]={roomLabel:label,base,company,status,items:[],min:nextDay,max:endNext};
+              groups[key].items.push({event:eventName,function:ev["Function Type"],setup:ev["Setup Style"],start:nextDay,end:endNext});
+              if(nextDay<groups[key].min)groups[key].min=nextDay;
+              if(endNext>groups[key].max)groups[key].max=endNext;
+              if(!dataMin||nextDay<dataMin)dataMin=nextDay;
+              if(!dataMax||endNext>dataMax)dataMax=endNext;
+            }
+          });
+          return;
+        }
+
+        // Same-day event
+        if(sameDay(d,chosen)){
+          labels.forEach(({label,base})=>{
+            const key=label+"||"+company+"||"+status+"||"+d.toDateString();
+            if(!groups[key]) groups[key]={roomLabel:label,base,company,status,items:[],min:start,max:end};
+            groups[key].items.push({event:eventName,function:ev["Function Type"],setup:ev["Setup Style"],start,end});
+            if(start<groups[key].min)groups[key].min=start;
+            if(end>groups[key].max)groups[key].max=end;
+          });
+          if(!dataMin||start<dataMin)dataMin=start;
+          if(!dataMax||end>dataMax)dataMax=end;
+        }
+      });
+
+      const rows=[];
+      const usedBases=new Set();
+      ROOM_ORDER.forEach(roomBase=>{
+        Object.values(groups).forEach(g=>{
+          if(g.base===roomBase && sameDay(g.min,chosen)){
+            usedBases.add(roomBase);
+            rows.push([
+              g.roomLabel,
+              g.company || g.items[0]?.event,
+              groupTooltip(g.roomLabel,g.items,g.status),
+              "",
+              g.min, g.max
+            ]);
+          }
+        });
+        if(showAllRooms && !usedBases.has(roomBase)){
+          const base=dataMin||new Date(chosen.getFullYear(),chosen.getMonth(),chosen.getDate(),8,0);
+          rows.push([roomBase,"","","color:#E5E7EB;", base,new Date(base.getTime()+60000)]);
+        }
+      });
+
+      if(rows.length===0){
+        container.innerHTML="<p style='color:#c00; margin:12px;'>No events found for this date.</p>";
+        return;
+      }
+
+      dataTable.addRows(rows);
+
+      const startHour = dataMin ? floorToHour(dataMin) : new Date(chosen.getFullYear(),chosen.getMonth(),chosen.getDate(),0,0);
+      const endHour   = dataMax ? ceilToHour(dataMax)   : new Date(chosen.getFullYear(),chosen.getMonth(),chosen.getDate(),23,59);
+      const ticks = [];
+      let t = new Date(startHour);
+      while(t <= endHour){
+        ticks.push(new Date(t.getTime()));
+        t.setHours(t.getHours()+1);
+      }
+      const pad = 60 * 1000;
+
+      chart.draw(dataTable,{
+        tooltip:{isHtml:true,trigger:"focus"},
+        backgroundColor:{fill:"#fff"},
+        chartArea:{backgroundColor:"#fff"},
+        hAxis:{
+          ticks,
+          viewWindow:{ min:new Date(startHour.getTime()-pad), max:new Date(endHour.getTime()+pad) },
+          format:"h a",
+          textStyle:{color:"#000",bold:false},
+          baselineColor:"#aaa",
+          gridlines:{color:"#ddd"},
+          minorGridlines:{count:0}
+        },
+        timeline:{
+          showBarLabels:true,
+          rowLabelStyle:{fontSize:13,color:"#000"},
+          barLabelStyle:{fontSize:11,color:"#000"}
+        }
+      });
+    }
+
+    function loadCSV(file){
+      Papa.parse(file,{
+        header:true,
+        complete:(results)=>{
+          allEvents=results.data.filter(r=>r && r["Day of Event"]);
+          if(allEvents.length){
+            let earliest=null;
+            allEvents.forEach(ev=>{
+              const d=parseDayOfEvent(ev["Day of Event"]);
+              if(!d) return;
+              const [sh,sm]=parseTime(ev["Start Time"]);
+              const start=new Date(d.getFullYear(),d.getMonth(),d.getDate(),sh,sm);
+              if(!earliest || start < earliest) earliest=start;
+            });
+            if(earliest){
+              const localDate=toLocalISODate(earliest);
+              document.getElementById("dayPicker").value=localDate;
+              drawChart(localDate);
+            }
+          }
+        }
+      });
+    }
+
+    function updateDate(){const d=document.getElementById("dayPicker").value;if(d) drawChart(d);}
+    function changeDay(offset){
+      if(!currentDate)return;
+      const nd=new Date(currentDate); nd.setDate(currentDate.getDate()+offset);
+      const localDate=toLocalISODate(nd);
+      document.getElementById("dayPicker").value=localDate;
+      drawChart(localDate);
+    }
+    function toggleRooms(){
+      showAllRooms=!showAllRooms;
+      document.getElementById("toggleShowRooms").textContent=showAllRooms?"Hide Unused Rooms":"Show All Rooms";
+      if(currentDate) drawChart(toLocalISODate(currentDate));
+    }
+
+    google.charts.setOnLoadCallback(()=>{
+      document.getElementById("csvFile").addEventListener("change",e=>{
+        const f=e.target.files[0]; if(f) loadCSV(f);
+      });
+      document.getElementById("dayPicker").addEventListener("change",updateDate);
+      document.getElementById("prevDay").addEventListener("click",()=>changeDay(-1));
+      document.getElementById("nextDay").addEventListener("click",()=>changeDay(1));
+      document.getElementById("toggleShowRooms").addEventListener("click",toggleRooms);
+
+      // Redraw on window resize
+      window.addEventListener("resize", ()=>{
+        if(currentDate) drawChart(toLocalISODate(currentDate));
+      });
+    });
+  </script>
+</body>
+</html>

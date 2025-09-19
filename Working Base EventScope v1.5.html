@@ -5,9 +5,16 @@
     <meta charset="utf-8">
     <title>EventScope</title>
 
-    <!-- Google Charts + PapaParse -->
+    <!-- Google Charts -->
     <script src="https://www.gstatic.com/charts/loader.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- PDF.js for in-browser PDF parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.10.111/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.10.111/pdf.worker.min.js";
+        }
+    </script>
 
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -610,13 +617,13 @@
         <div class="card" id="globalUploads">
             <div class="controls">
                 <div class="group">
-                    <label for="csvFileA">Newest Event Report CSV</label>
-                    <input type="file" id="csvFileA" accept=".csv">
+                    <label for="csvFileA">Newest Event Report PDF</label>
+                    <input type="file" id="csvFileA" accept=".pdf">
                 </div>
                 <div class="spacer"></div>
                 <div class="group">
-                    <label for="csvFileB">Previous Event Report CSV</label>
-                    <input type="file" id="csvFileB" accept=".csv">
+                    <label for="csvFileB">Previous Event Report PDF</label>
+                    <input type="file" id="csvFileB" accept=".pdf">
                 </div>
             </div>
         </div>
@@ -787,6 +794,167 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+
+        /* ========= PDF PARSING HEURISTICS ========= */
+        const FUNCTION_TYPES = [
+            "Meeting", "Breakout", "Breakfast", "Lunch", "Dinner", "Reception",
+            "Cocktail Reception", "Board Meeting", "General Session", "Set Up",
+            "Holding Room", "Dance", "Ceremony", "Brunch", "Box Lunch",
+            "PM Break", "AM Break", "Coffee Break", "Continuous Break",
+            "Hospitality Room", "24 Hour Hold", "Storage", "Office",
+            "Registration", "Rehearsal", "Special", "Buffet", "Exhibits",
+            "Continental Breakfast", "Teardown", "No Agenda Hold"
+        ];
+
+        const FUNCTION_SPACES_HINTS = [
+            "Director's Room", "The Founders Room",
+            "Legacy Ballroom", "Legacy Ballroom I", "Legacy Ballroom II",
+            "Legacy I", "Legacy II", "Legacy Prefunction",
+            "The Gallery", "Gallery", "Gallery I", "Gallery II",
+            "Gallery Prefunction", "Gallery I Prefunction", "Gallery II Prefunction",
+            "The Gallery Lounge",
+            "Trade Root Restaurant", "Boardroom", "Envoy", "Diplomat", "Ambassador",
+            "Plaza I", "Plaza II", "Plaza III", "Plaza II & III", "Plaza", "Plaza Prefunction",
+            "Salon I", "Salon II", "Salon III", "Salon IV", "Salon V",
+            "Salon VI", "Salon VII", "Salon VIII",
+            "Prefunction", "2nd Floor Prefunction", "Whitley Prefunction",
+            "Consulate", "Delegate", "Attache", "Charge",
+            "The Whitley Ballroom", "Whitley Ballroom"
+        ];
+
+        const SETUP_STYLES = [
+            "Conference", "Rounds of 10", "Rounds of 8", "Rounds of 6",
+            "Chevron Theatre", "Schoolroom", "U-Shape", "Hollow Square",
+            "Cocktail Rounds", "Theatre", "Special",
+            "Crescent Rounds", "Lounge", "Storage"
+        ];
+
+        const GROUPINGS = {
+            "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
+            "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
+            "Legacy Ballroom": ["Legacy I", "Legacy II"],
+        };
+
+        const ROMAN_ORDER = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8 };
+
+        const MEAL_BREAK_TYPES = new Set([
+            "Breakfast", "Lunch", "Dinner", "AM Break", "PM Break",
+            "Coffee Break", "Continuous Break", "Box Lunch", "Buffet", "Continental Breakfast"
+        ]);
+
+        const FALLBACK_TYPES = new Set([...MEAL_BREAK_TYPES, "Meeting", "Rehearsal", "Exhibits"]);
+
+        const TIME_RANGE_RE = /(\d{1,2}:\d{2}\s?[AP]M)\s*[-–—]\s*(\d{1,2}:\d{2}\s?[AP]M)/i;
+        const DATE_LINE_RE = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), .* \d{4}$/i;
+        const COUNTS_RE = /^\d+\/\d+\/(?:\d+|__)$/;
+        const POST_AS_RE = /Post As[:\-]?\s*(.+)/i;
+
+        function escapeRegExp(str) {
+            return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        }
+
+        function romanToInt(r) {
+            return ROMAN_ORDER[r] ?? 999;
+        }
+
+        function splitRomanList(str) {
+            const cleaned = str.replace(/\s*(?:&|and)\s*/gi, ",");
+            return cleaned
+                .split(",")
+                .map(p => p.trim().toUpperCase())
+                .filter(p => p && /^[IVX]+$/.test(p));
+        }
+
+        function expandCompoundPrefix(lineText) {
+            const found = new Set();
+            const checks = [
+                { prefix: "Salon", regex: /\bSalon\b\s+([IVX]+(?:\s*,\s*[IVX]+)*(?:\s*(?:&|and)\s*[IVX]+)?)/gi },
+                { prefix: "Plaza", regex: /\bPlaza\b\s+([IVX]+(?:\s*,\s*[IVX]+)*(?:\s*(?:&|and)\s*[IVX]+)?)/gi },
+                { prefix: "Legacy", regex: /\bLegacy\b\s+([IVX]+(?:\s*,\s*[IVX]+)*(?:\s*(?:&|and)\s*[IVX]+)?)/gi },
+            ];
+            checks.forEach(({ prefix, regex }) => {
+                let match;
+                while ((match = regex.exec(lineText))) {
+                    splitRomanList(match[1]).forEach(r => found.add(`${prefix} ${r}`));
+                }
+            });
+            return Array.from(found);
+        }
+
+        function expandGroupedSpace(lineText, primary) {
+            const compound = new Set(expandCompoundPrefix(lineText));
+
+            Object.entries(GROUPINGS).forEach(([ballroom, subs]) => {
+                subs.forEach(sub => {
+                    const re = new RegExp(`\\b${escapeRegExp(sub)}\\b`);
+                    if (re.test(lineText)) compound.add(sub);
+                });
+            });
+
+            if (/\bAttache\b/i.test(lineText) && /\bCharge\b/i.test(lineText)) {
+                return "Attache Charge";
+            }
+
+            if (!compound.size) {
+                return primary ? primary.trim() : primary;
+            }
+
+            const whitley = Array.from(compound).filter(s => s.startsWith("Salon "));
+            const plaza = Array.from(compound).filter(s => s.startsWith("Plaza "));
+            const legacy = Array.from(compound).filter(s => s.startsWith("Legacy "));
+
+            if (whitley.length) {
+                const romans = Array.from(new Set(whitley.map(s => s.split(" ").at(-1)))).sort((a, b) => romanToInt(a) - romanToInt(b));
+                return `Whitley Ballroom (${romans.map(r => `Salon ${r}`).join(", ")})`;
+            }
+            if (plaza.length) {
+                const romans = Array.from(new Set(plaza.map(s => s.split(" ").at(-1)))).sort((a, b) => romanToInt(a) - romanToInt(b));
+                return `Plaza Ballroom (${romans.map(r => `Plaza ${r}`).join(", ")})`;
+            }
+            if (legacy.length) {
+                const romans = Array.from(new Set(legacy.map(s => s.split(" ").at(-1)))).sort((a, b) => romanToInt(a) - romanToInt(b));
+                return `Legacy Ballroom (${romans.map(r => `Legacy ${r}`).join(", ")})`;
+            }
+
+            return primary ? primary.trim() : primary;
+        }
+
+        function detectFunctionType(text) {
+            if (/\bContinental\b/i.test(text)) return "Continental Breakfast";
+            const sorted = [...FUNCTION_TYPES].sort((a, b) => b.length - a.length);
+            for (const f of sorted) {
+                const re = new RegExp(`\\b${escapeRegExp(f)}\\b`, "i");
+                if (re.test(text)) return f;
+            }
+            return null;
+        }
+
+        function detectSetupStyle(text) {
+            const sorted = [...SETUP_STYLES].sort((a, b) => b.length - a.length);
+            for (const s of sorted) {
+                const re = new RegExp(`\\b${escapeRegExp(s)}\\b`, "i");
+                if (re.test(text)) return s;
+            }
+            return null;
+        }
+
+        function detectSpace(text) {
+            for (const hint of FUNCTION_SPACES_HINTS) {
+                const re = new RegExp(`\\b${escapeRegExp(hint)}\\b`);
+                if (re.test(text)) return hint;
+            }
+            return null;
+        }
+
+        function cleanTimeString(raw) {
+            if (!raw) return "";
+            const match = raw.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+            if (!match) return raw.trim();
+            const hour = String(Number(match[1]));
+            const minute = match[2];
+            const mod = match[3].toUpperCase();
+            return `${hour}:${minute} ${mod}`;
+        }
 
         /* ========= ROOM ORDERING ========= */
         const ROOM_ORDER = [
@@ -1642,26 +1810,195 @@
             }
         }
 
-        /* ========= CSV ========= */
-        function loadCSV(file, target) {
-            Papa.parse(file, {
-                header: true,
-                complete: (results) => {
-                    const rows = results.data.filter(r => r && r["Day of Event"]);
-                    if (target === "A") {
-                        reportA = rows;
-                        allEvents = rows;
-                        buildSuggestions(); // for search box
-                        redraw();
-                        renderForecast();
-                    } else {
-                        reportB = rows;
+        /* ========= PDF UPLOAD ========= */
+        async function extractPdfLines(file) {
+            if (!window.pdfjsLib) {
+                throw new Error("PDF.js library is not available");
+            }
+            const data = await file.arrayBuffer();
+            const pdf = await window.pdfjsLib.getDocument({ data }).promise;
+            const lines = [];
+
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                const items = textContent.items
+                    .map(item => ({
+                        text: (item.str || "").trim(),
+                        x: item.transform?.[4] ?? 0,
+                        y: item.transform?.[5] ?? 0
+                    }))
+                    .filter(item => item.text);
+
+                items.sort((a, b) => {
+                    const yDiff = Math.abs(b.y - a.y);
+                    if (yDiff > 2) {
+                        return b.y - a.y; // top to bottom
                     }
-                    if (reportA.length && reportB.length) {
-                        generateChangeLog(reportA, reportB);
+                    return a.x - b.x; // left to right
+                });
+
+                let currentY = null;
+                let parts = [];
+                items.forEach(item => {
+                    if (currentY === null || Math.abs(item.y - currentY) <= 2) {
+                        parts.push(item.text);
+                        currentY = item.y;
+                    } else {
+                        const normalized = parts.join(' ').replace(/\s+/g, ' ').trim();
+                        if (normalized) lines.push(normalized);
+                        parts = [item.text];
+                        currentY = item.y;
+                    }
+                });
+                if (parts.length) {
+                    const normalized = parts.join(' ').replace(/\s+/g, ' ').trim();
+                    if (normalized) lines.push(normalized);
+                }
+            }
+
+            return lines;
+        }
+
+        async function loadPDF(file, target) {
+            const lines = await extractPdfLines(file);
+            const rows = [];
+
+            let currentCompany = null;
+            let currentEvent = null;
+            let currentDateStr = null;
+            let currentStatus = null;
+            let inEventHeader = false;
+            let inEventBody = false;
+            const lastSpaceByEvent = new Map();
+
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line) {
+                    continue;
+                }
+
+                if (line.includes("Quote #:")) {
+                    currentCompany = line.split("Quote #:")[0].trim();
+                    inEventHeader = true;
+                    inEventBody = false;
+                    continue;
+                }
+
+                if (line.includes("Status:")) {
+                    const statusMatch = line.match(/Status:\s*(\w+)/i);
+                    if (statusMatch) {
+                        currentStatus = statusMatch[1].trim();
+                    }
+                    continue;
+                }
+
+                if (line.includes("Folio #:")) {
+                    const evMatch = line.match(/(.+?)\s+Folio #:/);
+                    if (evMatch) {
+                        currentEvent = evMatch[1].trim();
+                        inEventHeader = true;
+                        inEventBody = false;
+                    }
+                    continue;
+                }
+
+                if (DATE_LINE_RE.test(line)) {
+                    currentDateStr = line.trim();
+                    continue;
+                }
+
+                const postMatch = line.match(POST_AS_RE);
+                if (postMatch && rows.length && inEventBody) {
+                    const last = rows[rows.length - 1];
+                    if (last["Function Space"] && !last["Post As"]) {
+                        last["Post As"] = postMatch[1].trim();
+                    }
+                    continue;
+                }
+                if (postMatch && inEventHeader) {
+                    continue;
+                }
+
+                const timeMatch = line.match(TIME_RANGE_RE);
+                if (!timeMatch) {
+                    continue;
+                }
+
+                inEventHeader = false;
+                inEventBody = true;
+
+                const startTime = cleanTimeString(timeMatch[1]);
+                const endTime = cleanTimeString(timeMatch[2]);
+                const functionType = detectFunctionType(line);
+                const setupStyle = detectSetupStyle(line);
+                let functionSpace = detectSpace(line);
+                functionSpace = expandGroupedSpace(line, functionSpace);
+
+                if (functionSpace && COUNTS_RE.test(functionSpace.trim())) {
+                    functionSpace = null;
+                }
+
+                const eventKey = `${currentCompany || ""}||${currentEvent || ""}`;
+                if (!functionSpace && functionType && FALLBACK_TYPES.has(functionType)) {
+                    const lastSpace = lastSpaceByEvent.get(eventKey);
+                    if (lastSpace) {
+                        functionSpace = lastSpace;
                     }
                 }
-            });
+
+                if (!functionSpace) {
+                    continue;
+                }
+
+                lastSpaceByEvent.set(eventKey, functionSpace);
+
+                rows.push({
+                    "Company Name": currentCompany || "",
+                    "Event Name": currentEvent || "",
+                    "Event Status": currentStatus || "",
+                    "Day of Event": currentDateStr || "",
+                    "Start Time": startTime,
+                    "End Time": endTime,
+                    "Function Type": functionType || "",
+                    "Function Space": functionSpace || "",
+                    "Setup Style": setupStyle || "",
+                    "Post As": "",
+                    "Raw Line": line
+                });
+            }
+
+            ingestRows(target, rows);
+            return rows;
+        }
+
+        function ingestRows(target, rows) {
+            const filtered = rows.filter(r => r && r["Day of Event"]);
+            if (target === "A") {
+                reportA = filtered;
+                allEvents = filtered;
+                buildSuggestions();
+                redraw();
+                renderForecast();
+            } else {
+                reportB = filtered;
+            }
+            if (reportA.length && reportB.length) {
+                generateChangeLog(reportA, reportB);
+            }
+        }
+
+        async function processPdfUpload(file, target) {
+            if (!file) return;
+            try {
+                const rows = await loadPDF(file, target);
+                if (!rows.length) {
+                    alert(`No events were recognized in ${file.name}.`);
+                }
+            } catch (err) {
+                console.error(err);
+                alert(`Unable to parse ${file.name}: ${err?.message || err}`);
+            }
         }
 
         /* ========= DATE / VIEW CONTROLS ========= */
@@ -1830,11 +2167,11 @@
         function initUI() {
             document.getElementById("csvFileA").addEventListener("change", e => {
                 const f = e.target.files[0];
-                if (f) loadCSV(f, "A");
+                processPdfUpload(f, "A");
             });
             document.getElementById("csvFileB").addEventListener("change", e => {
                 const f = e.target.files[0];
-                if (f) loadCSV(f, "B");
+                processPdfUpload(f, "B");
             });
 
             // Segmented control

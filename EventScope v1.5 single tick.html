@@ -1323,13 +1323,6 @@
             // full-day window
             const startHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 0, 0, 0, 0);
             const endHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 23, 59, 59, 999);
-            const ticks = [];
-            let t = new Date(startHour);
-            while (t <= endHour) {
-                ticks.push(new Date(t));
-                t.setHours(t.getHours() + 1);
-            }
-
             chart.draw(dt, {
                 tooltip: {
                     isHtml: true,
@@ -1342,7 +1335,6 @@
                     backgroundColor: "#fff"
                 },
                 hAxis: {
-                    ticks,
                     format: "h a",
                     textStyle: {
                         color: "#000"

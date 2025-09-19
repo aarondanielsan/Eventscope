@@ -46,12 +46,20 @@
             font-family: 'Poppins', sans-serif;
             background: var(--bg-navy);
             color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
         .container {
-            max-width: 1200px;
+            width: 100%;
             margin: 0 auto;
-            padding: 24px;
+            padding: clamp(16px, 4vw, 32px);
+            display: flex;
+            flex-direction: column;
+            gap: clamp(16px, 2vw, 24px);
+            flex: 1 1 auto;
+            min-height: 0;
         }
 
         h1 {
@@ -63,9 +71,12 @@
         .card {
             background: var(--panel);
             border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 14px;
-            margin-bottom: 14px;
+            border-radius: 12px;
+            padding: clamp(16px, 3vw, 24px);
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: clamp(12px, 2vw, 18px);
         }
 
         /* global controls (uploads) */
@@ -73,8 +84,7 @@
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
+            gap: clamp(12px, 2vw, 20px);
         }
 
         label {
@@ -111,6 +121,9 @@
             font-size: .85rem;
             cursor: pointer;
             transition: .18s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         button:hover {
@@ -122,20 +135,19 @@
             border: 1px solid var(--border);
         }
 
-        .spacer {
-            flex: 1
-        }
-
         .group {
             display: flex;
             align-items: center;
             gap: 8px;
-            flex-wrap: wrap
+            flex-wrap: wrap;
+            flex: 1 1 260px;
+            min-width: min(240px, 100%);
         }
 
         /* tabs */
         .tabs {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             margin: 12px 0;
         }
@@ -164,26 +176,47 @@
             display: block;
         }
 
-        /* toolbar (calendar + bottom-anchored controls) */
+        /* toolbar (calendar + controls) */
         .toolbar {
             display: flex;
-            gap: 20px;
+            flex-wrap: wrap;
+            gap: clamp(16px, 2vw, 24px);
             align-items: stretch;
             background: #182750;
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 10px;
+            padding: clamp(12px, 2vw, 18px);
         }
 
         .calendar-shell {
             background: #223366;
             border: 1px solid var(--border);
             border-radius: 10px;
-            padding: 8px;
-            width: 220px;
+            padding: clamp(12px, 2vw, 18px);
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
+            flex: 1 1 260px;
+            min-width: min(260px, 100%);
+        }
+
+        .toolbar-panel {
+            flex: 2 1 320px;
+            min-width: min(320px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: clamp(12px, 2vw, 18px);
+        }
+
+        .toolbar-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: clamp(12px, 2vw, 18px);
+            align-items: center;
+        }
+
+        .toolbar-row.stretch {
+            align-items: stretch;
         }
 
         .calendar-header {
@@ -249,36 +282,27 @@
             outline: 2px solid #4b6bb5
         }
 
-        .right-tools {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .controls-bottom {
-            margin-top: auto;
-            padding-top: 10px;
-            border-top: 1px solid var(--border);
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
+        .toolbar-row .btn,
+        .toolbar-row .secondary,
+        .toolbar-row .segmented {
+            flex: 0 0 auto;
         }
 
         .date-badge {
             display: grid;
-            grid-template-columns: 34px minmax(220px, 1fr) 34px;
+            grid-template-columns: auto 1fr auto;
             align-items: center;
             background: #223366;
             border: 1px solid var(--border);
             border-radius: 999px;
-            padding: 6px 8px;
-            min-width: 320px;
+            padding: 6px 10px;
+            flex: 1 1 240px;
+            min-width: min(240px, 100%);
         }
 
         .nav-btn {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             border: none;
             cursor: pointer;
@@ -337,16 +361,10 @@
             border: 1px solid var(--border);
         }
 
-        /* search card (timeline-only filter) */
-        .search-card {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
         .search-box {
             position: relative;
+            flex: 1 1 260px;
+            min-width: min(220px, 100%);
         }
 
         .search-box input {
@@ -356,7 +374,8 @@
             background: #1c2a55;
             color: #fff;
             font: inherit;
-            min-width: 280px;
+            width: 100%;
+            min-width: 0;
         }
 
         .suggestions {
@@ -392,18 +411,71 @@
             color: #cfe0ff;
         }
 
+        .search-status {
+            opacity: .7;
+            font-size: .9rem;
+            flex: 1 1 180px;
+            min-width: min(160px, 100%);
+        }
+
         /* timeline wrapper */
         #timeline-wrapper {
             background: var(--chart-bg);
             border-radius: 10px;
-            padding: 10px;
-            margin-top: 8px;
+            padding: clamp(12px, 2vw, 18px);
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 320px;
         }
 
         #timeline {
+            flex: 1 1 auto;
             width: 100%;
-            height: 70vh;
-            min-height: 400px;
+            min-height: 320px;
+        }
+
+        .timeline-card {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        @media (max-width: 900px) {
+            .toolbar {
+                flex-direction: column;
+            }
+
+            .toolbar-panel,
+            .calendar-shell {
+                min-width: 100%;
+            }
+        }
+
+        @media (max-width: 680px) {
+            .toolbar-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .toolbar-row .btn,
+            .toolbar-row .secondary,
+            .toolbar-row .segmented,
+            .toolbar-row .search-box,
+            .toolbar-row .date-badge {
+                width: 100%;
+            }
+
+            .segmented {
+                justify-content: space-between;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .group {
+                width: 100%;
+            }
         }
 
         #timeline text {
@@ -620,7 +692,6 @@
                     <label for="csvFileA">Newest Event Report PDF</label>
                     <input type="file" id="csvFileA" accept=".pdf">
                 </div>
-                <div class="spacer"></div>
                 <div class="group">
                     <label for="csvFileB">Previous Event Report PDF</label>
                     <input type="file" id="csvFileB" accept=".pdf">
@@ -637,11 +708,8 @@
 
         <!-- TIMELINE TAB -->
         <div id="timelineTab" class="tab-content active">
-            <div class="card">
-
-                <!-- Toolbar (calendar + bottom-anchored controls) -->
+            <div class="card timeline-card">
                 <div class="toolbar">
-                    <!-- Calendar -->
                     <div class="calendar-shell week-highlight">
                         <div class="calendar-header">
                             <div id="calMonthLabel">September 2025</div>
@@ -720,35 +788,30 @@
                             </tbody>
                         </table>
                     </div>
-
-                    <!-- Bottom-anchored tools -->
-
-                </div>
-
-                <!--Main Tools (Date, Toggle, Search, Show -->
-                <div class="card" id="searchCard" style="margin-top:12px;">
-                    <div class="search-card">
-
-                        <div class="date-badge">
-                            <button class="nav-btn" id="prevDay">‹</button>
-                            <div class="date-label" id="dateLabel">Thu, Sep 18, 2025</div>
-                            <button class="nav-btn" id="nextDay">›</button>
-                        </div><button class="btn" id="jumpToday">Today</button>
-                        <div class="segmented" id="viewMode">
-                            <button data-mode="day" class="active">Daily</button>
-                            <button data-mode="week" class="">Weekly</button>
+                    <div class="toolbar-panel">
+                        <div class="toolbar-row">
+                            <div class="date-badge">
+                                <button class="nav-btn" id="prevDay">‹</button>
+                                <div class="date-label" id="dateLabel">Thu, Sep 18, 2025</div>
+                                <button class="nav-btn" id="nextDay">›</button>
+                            </div>
+                            <button class="btn" id="jumpToday">Today</button>
+                            <div class="segmented" id="viewMode">
+                                <button data-mode="day" class="active">Daily</button>
+                                <button data-mode="week" class="">Weekly</button>
+                            </div>
                         </div>
-                        <div class="search-box">
-                            <input type="text" id="timelineSearch" placeholder="Search company or event…">
-                            <div class="suggestions" id="searchSuggest" style="display: none;"></div>
+                        <div class="toolbar-row stretch">
+                            <div class="search-box">
+                                <input type="text" id="timelineSearch" placeholder="Search company or event…">
+                                <div class="suggestions" id="searchSuggest" style="display: none;"></div>
+                            </div>
+                            <button class="secondary" id="clearSearch">Clear</button>
+                            <span id="searchStatus" class="search-status"></span>
+                            <button class="btn secondary" id="toggleShowRooms">Show All Rooms</button>
                         </div>
-                        <button class="secondary" id="clearSearch">Clear</button>
-                        <span id="searchStatus" style="opacity:.7;font-size:.9rem;"></span>
-                        <button class="btn secondary" id="toggleShowRooms">Show All Rooms</button>
                     </div>
                 </div>
-
-                <!-- Chart -->
                 <div id="timeline-wrapper">
                     <div id="timeline">
                         <p style="color:#c00; margin:12px;">No events found for this date.</p>
@@ -1156,6 +1219,22 @@
         }
 
         /* ========= TIMELINE DRAWERS ========= */
+        function applyTimelineHeight() {
+            const wrapper = document.getElementById("timeline-wrapper");
+            const timeline = document.getElementById("timeline");
+            if (!wrapper || !timeline) return;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            const rect = wrapper.getBoundingClientRect();
+            if (!rect || !Number.isFinite(rect.top)) return;
+            const computed = window.getComputedStyle(wrapper);
+            const paddingBottom = parseFloat(computed?.paddingBottom || "0");
+            const marginBottom = parseFloat(computed?.marginBottom || "0");
+            let target = viewportHeight - rect.top - paddingBottom - marginBottom - 16;
+            if (!Number.isFinite(target)) return;
+            if (target < 320) target = 320;
+            timeline.style.height = `${target}px`;
+        }
+
         function drawDaily(selectedDateISO) {
             const container = document.getElementById("timeline");
             const chart = new google.visualization.Timeline(container);
@@ -1320,9 +1399,14 @@
 
             dt.addRows(rows);
 
-            // full-day window
+            // full-day window + hourly ticks
             const startHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 0, 0, 0, 0);
             const endHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 23, 59, 59, 999);
+            const ticks = [];
+            for (let hour = 0; hour < 24; hour++) {
+                ticks.push(new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), hour, 0, 0, 0));
+            }
+
             chart.draw(dt, {
                 tooltip: {
                     isHtml: true,
@@ -1332,20 +1416,31 @@
                     fill: "#fff"
                 },
                 chartArea: {
-                    backgroundColor: "#fff"
+                    backgroundColor: "#fff",
+                    width: "100%",
+                    height: "100%"
                 },
                 hAxis: {
                     format: "h a",
+                    ticks,
                     textStyle: {
                         color: "#000"
                     },
                     baselineColor: "#aaa",
                     gridlines: {
-                        color: "#ddd"
+                        color: "#ddd",
+                        count: ticks.length - 1,
+                        units: {
+                            hours: {
+                                format: ["ha"]
+                            }
+                        }
                     },
                     minorGridlines: {
-                        count: 0
+                        count: 0,
+                        units: {}
                     },
+                    viewWindowMode: "explicit",
                     viewWindow: {
                         min: startHour,
                         max: endHour
@@ -1522,21 +1617,23 @@
             }
 
 
-            chart.draw(dt, {
-                tooltip: {
-                    isHtml: true,
-                    trigger: "focus"
-                },
-                backgroundColor: {
-                    fill: "#fff"
-                },
-                chartArea: {
-                    backgroundColor: "#fff"
-                },
-                hAxis: {
-                    ticks,
-                    format: "EEE M/d", // <-- fixed: use pattern, not function
-                    textStyle: {
+                chart.draw(dt, {
+                    tooltip: {
+                        isHtml: true,
+                        trigger: "focus"
+                    },
+                    backgroundColor: {
+                        fill: "#fff"
+                    },
+                    chartArea: {
+                        backgroundColor: "#fff",
+                        width: "100%",
+                        height: "100%"
+                    },
+                    hAxis: {
+                        ticks,
+                        format: "EEE M/d", // <-- fixed: use pattern, not function
+                        textStyle: {
                         color: "#000"
                     },
                     baselineColor: "#aaa",
@@ -2012,6 +2109,7 @@
 
         function redraw() {
             if (!google?.charts) return;
+            applyTimelineHeight();
             if (viewMode === "day") drawDaily(toLocalISODate(currentDate));
             else drawWeekly(toLocalISODate(currentDate));
         }
@@ -2219,6 +2317,7 @@
 
             // initial
             syncDateUI(currentDate);
+            applyTimelineHeight();
             google.charts.setOnLoadCallback(() => redraw());
         }
         window.addEventListener("resize", () => redraw());

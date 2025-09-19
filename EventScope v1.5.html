@@ -49,6 +49,8 @@
         }
 
         .container {
+            width: 100%;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 24px;
         }
@@ -78,10 +80,11 @@
 
         label {
             font-size: .9rem;
-            opacity: .9
+            opacity: .9;
         }
 
-        input[type="file"] {
+        input[type="file"],
+        input[type="date"] {
             background: var(--panel);
             border: 1px solid var(--border);
             color: var(--text);
@@ -106,14 +109,14 @@
             color: #fff;
             border: none;
             padding: 6px 12px;
-            border-radius: 8px;
+            border-radius: 6px;
             font-size: .85rem;
             cursor: pointer;
             transition: .18s ease;
         }
 
         button:hover {
-            filter: brightness(1.08)
+            filter: brightness(1.08);
         }
 
         button.secondary {
@@ -122,14 +125,14 @@
         }
 
         .spacer {
-            flex: 1
+            flex: 1;
         }
 
         .group {
             display: flex;
             align-items: center;
             gap: 8px;
-            flex-wrap: wrap
+            flex-wrap: wrap;
         }
 
         /* tabs */
@@ -163,233 +166,7 @@
             display: block;
         }
 
-        /* toolbar (calendar + bottom-anchored controls) */
-        .toolbar {
-            display: flex;
-            gap: 20px;
-            align-items: stretch;
-            background: #182750;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 10px;
-        }
-
-        .calendar-shell {
-            background: #223366;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 8px;
-            width: 220px;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-        }
-
-        .calendar-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-weight: 600;
-            margin-bottom: 6px;
-        }
-
-        .cal-nav button {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            background: #1c2a55;
-            color: #fff;
-            cursor: pointer;
-            font-weight: 700;
-        }
-
-        table.cal {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: center;
-            font-size: .8rem
-        }
-
-        .cal th {
-            color: var(--muted);
-            font-weight: 600;
-            padding: 4px 0
-        }
-
-        .cal td {
-            padding: 4px;
-            border-radius: 6px;
-            cursor: pointer
-        }
-
-        .cal td:hover {
-            background: #2b3f75
-        }
-
-        .cal td.active {
-            background: #2b3f75;
-            outline: 1px solid #4b6bb5
-        }
-
-        .cal td.real-today {
-            outline: 2px dashed var(--today)
-        }
-
-        .cal td.muted {
-            color: #7f8ab1
-        }
-
-        .week-highlight td.in-week {
-            background: #2a3f7c;
-        }
-
-        .week-highlight td.in-week.active {
-            outline: 2px solid #4b6bb5
-        }
-
-        .right-tools {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .controls-bottom {
-            margin-top: auto;
-            padding-top: 10px;
-            border-top: 1px solid var(--border);
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .date-badge {
-            display: grid;
-            grid-template-columns: 34px minmax(220px, 1fr) 34px;
-            align-items: center;
-            background: #223366;
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 6px 8px;
-            min-width: 320px;
-        }
-
-        .nav-btn {
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 800;
-            color: #fff;
-            background: var(--accent);
-        }
-
-        .date-label {
-            text-align: center;
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            padding: 0 8px;
-        }
-
-        .segmented {
-            display: inline-flex;
-            background: #223366;
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 3px;
-        }
-
-        .segmented button {
-            background: transparent;
-            border: none;
-            color: #cfe0ff;
-            padding: 6px 10px;
-            border-radius: 999px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-        .segmented button.active {
-            background: var(--accent);
-            color: #fff;
-        }
-
-        .btn {
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: .85rem;
-        }
-
-        .btn.secondary {
-            background: transparent;
-            border: 1px solid var(--border);
-        }
-
-        /* search card (timeline-only filter) */
-        .search-card {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .search-box {
-            position: relative;
-        }
-
-        .search-box input {
-            padding: 8px 10px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: #1c2a55;
-            color: #fff;
-            font: inherit;
-            min-width: 280px;
-        }
-
-        .suggestions {
-            position: absolute;
-            top: 110%;
-            left: 0;
-            right: 0;
-            background: #223366;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            max-height: 180px;
-            overflow-y: auto;
-            display: none;
-            z-index: 20;
-        }
-
-        .suggestions div {
-            padding: 8px;
-            cursor: pointer;
-            font-size: .9rem;
-        }
-
-        .suggestions div:hover {
-            background: #2b3f75;
-        }
-
-        .pill {
-            background: #223366;
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 4px 8px;
-            font-size: .8rem;
-            color: #cfe0ff;
-        }
+        /* baseline layout restored */
 
         /* timeline wrapper */
         #timeline-wrapper {
@@ -637,117 +414,18 @@
         <!-- TIMELINE TAB -->
         <div id="timelineTab" class="tab-content active">
             <div class="card">
-
-                <!-- Toolbar (calendar + bottom-anchored controls) -->
-                <div class="toolbar">
-                    <!-- Calendar -->
-                    <div class="calendar-shell week-highlight">
-                        <div class="calendar-header">
-                            <div id="calMonthLabel">September 2025</div>
-                            <div class="cal-nav">
-                                <button id="calPrev" aria-label="Prev Month">‹</button>
-                                <button id="calNext" aria-label="Next Month">›</button>
-                            </div>
-                        </div>
-                        <table class="cal" id="calTable">
-                            <thead>
-                                <tr>
-                                    <th>Su</th>
-                                    <th>Mo</th>
-                                    <th>Tu</th>
-                                    <th>We</th>
-                                    <th>Th</th>
-                                    <th>Fr</th>
-                                    <th>Sa</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td class="muted   " data-y="2025" data-m="7" data-d="31">31</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="1">1</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="2">2</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="3">3</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="4">4</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="5">5</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="6">6</td>
-                                </tr>
-                                <tr>
-                                    <td class="   " data-y="2025" data-m="8" data-d="7">7</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="8">8</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="9">9</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="10">10</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="11">11</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="12">12</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="13">13</td>
-                                </tr>
-                                <tr>
-                                    <td class="   in-week" data-y="2025" data-m="8" data-d="14">14</td>
-                                    <td class="   in-week" data-y="2025" data-m="8" data-d="15">15</td>
-                                    <td class="   in-week" data-y="2025" data-m="8" data-d="16">16</td>
-                                    <td class="   in-week" data-y="2025" data-m="8" data-d="17">17</td>
-                                    <td class=" active real-today in-week" data-y="2025" data-m="8" data-d="18">18</td>
-                                    <td class="   in-week" data-y="2025" data-m="8" data-d="19">19</td>
-                                    <td class="   in-week" data-y="2025" data-m="8" data-d="20">20</td>
-                                </tr>
-                                <tr>
-                                    <td class="   " data-y="2025" data-m="8" data-d="21">21</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="22">22</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="23">23</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="24">24</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="25">25</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="26">26</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="27">27</td>
-                                </tr>
-                                <tr>
-                                    <td class="   " data-y="2025" data-m="8" data-d="28">28</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="29">29</td>
-                                    <td class="   " data-y="2025" data-m="8" data-d="30">30</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="1">1</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="2">2</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="3">3</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="4">4</td>
-                                </tr>
-                                <tr>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="5">5</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="6">6</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="7">7</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="8">8</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="9">9</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="10">10</td>
-                                    <td class="muted   " data-y="2025" data-m="9" data-d="11">11</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                <div class="controls">
+                    <div class="group">
+                        <label for="dayPicker">Day</label>
+                        <input type="date" id="dayPicker">
+                        <button id="prevDay" class="secondary">⬅ Prev</button>
+                        <button id="nextDay">Next ➡</button>
                     </div>
-
-                    <!-- Bottom-anchored tools -->
-
-                </div>
-
-                <!--Main Tools (Date, Toggle, Search, Show -->
-                <div class="card" id="searchCard" style="margin-top:12px;">
-                    <div class="search-card">
-
-                        <div class="date-badge">
-                            <button class="nav-btn" id="prevDay">‹</button>
-                            <div class="date-label" id="dateLabel">Thu, Sep 18, 2025</div>
-                            <button class="nav-btn" id="nextDay">›</button>
-                        </div><button class="btn" id="jumpToday">Today</button>
-                        <div class="segmented" id="viewMode">
-                            <button data-mode="day" class="active">Daily</button>
-                            <button data-mode="week" class="">Weekly</button>
-                        </div>
-                        <div class="search-box">
-                            <input type="text" id="timelineSearch" placeholder="Search company or event…">
-                            <div class="suggestions" id="searchSuggest" style="display: none;"></div>
-                        </div>
-                        <button class="secondary" id="clearSearch">Clear</button>
-                        <span id="searchStatus" style="opacity:.7;font-size:.9rem;"></span>
-                        <button class="btn secondary" id="toggleShowRooms">Show All Rooms</button>
+                    <div class="spacer"></div>
+                    <div class="group">
+                        <button id="toggleShowRooms" class="secondary">Show All Rooms</button>
                     </div>
                 </div>
-
-                <!-- Chart -->
                 <div id="timeline-wrapper">
                     <div id="timeline">
                         <p style="color:#c00; margin:12px;">No events found for this date.</p>
@@ -2003,6 +1681,7 @@
         /* ========= DATE / VIEW CONTROLS ========= */
         function syncDateLabel() {
             const label = document.getElementById("dateLabel");
+            if (!label) return;
             if (viewMode === "day") {
                 label.textContent = currentDate.toLocaleDateString("en-US", {
                     weekday: "short",
@@ -2036,6 +1715,7 @@
         const calMonthLabel = document.getElementById("calMonthLabel");
 
         function renderCalendar(focusDate) {
+            if (!calTable || !calMonthLabel) return;
             const year = focusDate.getFullYear(),
                 month = focusDate.getMonth();
             calMonthLabel.textContent = monthLabel(focusDate);
@@ -2099,6 +1779,10 @@
         }
 
         function syncDateUI(d) {
+            const picker = document.getElementById("dayPicker");
+            if (picker) {
+                picker.value = toLocalISODate(d);
+            }
             renderCalendar(d);
             syncDateLabel();
         }
@@ -2109,6 +1793,10 @@
             const box = document.getElementById("searchSuggest");
             const status = document.getElementById("searchStatus");
             const clearBtn = document.getElementById("clearSearch");
+
+            if (!input || !box || !status || !clearBtn) {
+                return;
+            }
 
             function closeSuggest() {
                 box.style.display = "none";
@@ -2164,16 +1852,22 @@
 
         /* ========= EVENT HOOKS ========= */
         function initUI() {
-            document.getElementById("csvFileA").addEventListener("change", e => {
-                const f = e.target.files[0];
-                processPdfUpload(f, "A");
-            });
-            document.getElementById("csvFileB").addEventListener("change", e => {
-                const f = e.target.files[0];
-                processPdfUpload(f, "B");
-            });
+            const fileAInput = document.getElementById("csvFileA");
+            if (fileAInput) {
+                fileAInput.addEventListener("change", e => {
+                    const f = e.target.files[0];
+                    if (f) processPdfUpload(f, "A");
+                });
+            }
+            const fileBInput = document.getElementById("csvFileB");
+            if (fileBInput) {
+                fileBInput.addEventListener("change", e => {
+                    const f = e.target.files[0];
+                    if (f) processPdfUpload(f, "B");
+                });
+            }
 
-            // Segmented control
+            // Segmented control (if present)
             document.querySelectorAll("#viewMode button").forEach(btn => {
                 btn.addEventListener("click", () => {
                     document.querySelectorAll("#viewMode button").forEach(b => b.classList.remove("active"));
@@ -2184,29 +1878,59 @@
                 });
             });
 
-            document.getElementById("prevDay").addEventListener("click", () => changeDay(viewMode === "day" ? -1 : -7));
-            document.getElementById("nextDay").addEventListener("click", () => changeDay(viewMode === "day" ? +1 : +7));
-            document.getElementById("jumpToday").addEventListener("click", () => {
-                currentDate = new Date();
-                syncDateUI(currentDate);
-                redraw();
-            });
-            document.getElementById("toggleShowRooms").addEventListener("click", () => {
-                showAllRooms = !showAllRooms;
-                document.getElementById("toggleShowRooms").textContent = showAllRooms ? "Hide Unused Rooms" : "Show All Rooms";
-                if (viewMode === "day") redraw(); // weekly ignores this
-            });
+            const dayInput = document.getElementById("dayPicker");
+            if (dayInput) {
+                dayInput.addEventListener("change", () => {
+                    const val = dayInput.value;
+                    if (val) {
+                        currentDate = fromISODateLocal(val);
+                        syncDateUI(currentDate);
+                        redraw();
+                    }
+                });
+            }
 
-            document.getElementById("calPrev").addEventListener("click", () => {
-                const d = new Date(currentDate);
-                d.setMonth(d.getMonth() - 1);
-                renderCalendar(d); // move focus month; selection unchanged
-            });
-            document.getElementById("calNext").addEventListener("click", () => {
-                const d = new Date(currentDate);
-                d.setMonth(d.getMonth() + 1);
-                renderCalendar(d);
-            });
+            const prevBtn = document.getElementById("prevDay");
+            if (prevBtn) {
+                prevBtn.addEventListener("click", () => changeDay(viewMode === "day" ? -1 : -7));
+            }
+            const nextBtn = document.getElementById("nextDay");
+            if (nextBtn) {
+                nextBtn.addEventListener("click", () => changeDay(viewMode === "day" ? +1 : +7));
+            }
+            const jumpToday = document.getElementById("jumpToday");
+            if (jumpToday) {
+                jumpToday.addEventListener("click", () => {
+                    currentDate = new Date();
+                    syncDateUI(currentDate);
+                    redraw();
+                });
+            }
+            const toggleRoomsBtn = document.getElementById("toggleShowRooms");
+            if (toggleRoomsBtn) {
+                toggleRoomsBtn.addEventListener("click", () => {
+                    showAllRooms = !showAllRooms;
+                    toggleRoomsBtn.textContent = showAllRooms ? "Hide Unused Rooms" : "Show All Rooms";
+                    if (viewMode === "day") redraw(); // weekly ignores this
+                });
+            }
+
+            const calPrevBtn = document.getElementById("calPrev");
+            if (calPrevBtn) {
+                calPrevBtn.addEventListener("click", () => {
+                    const d = new Date(currentDate);
+                    d.setMonth(d.getMonth() - 1);
+                    renderCalendar(d); // move focus month; selection unchanged
+                });
+            }
+            const calNextBtn = document.getElementById("calNext");
+            if (calNextBtn) {
+                calNextBtn.addEventListener("click", () => {
+                    const d = new Date(currentDate);
+                    d.setMonth(d.getMonth() + 1);
+                    renderCalendar(d);
+                });
+            }
 
             // Tabs
             document.querySelectorAll(".tab-btn").forEach(btn => {

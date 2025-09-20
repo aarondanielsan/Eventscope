@@ -16,6 +16,9 @@
         }
     </script>
 
+    <!-- Dexie.js for IndexedDB management -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -130,6 +133,36 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap
+        }
+
+        .upload-stack {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .upload-stack label {
+            margin-bottom: 2px;
+        }
+
+        .upload-stack input[type="file"],
+        .upload-stack .report-select {
+            width: min(280px, 100%);
+        }
+
+        .report-select {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font: inherit;
+            font-size: .85rem;
+        }
+
+        .report-select:focus {
+            outline: 2px solid var(--accent);
+            outline-offset: 1px;
         }
 
         /* tabs */
@@ -615,14 +648,20 @@
         <!-- GLOBAL uploads -->
         <div class="card" id="globalUploads">
             <div class="controls">
-                <div class="group">
+                <div class="group upload-stack">
                     <label for="csvFileA">Newest Event Report PDF</label>
                     <input type="file" id="csvFileA" accept=".pdf">
+                    <select id="reportHistoryA" class="report-select">
+                        <option value="">Select a saved report…</option>
+                    </select>
                 </div>
                 <div class="spacer"></div>
-                <div class="group">
+                <div class="group upload-stack">
                     <label for="csvFileB">Previous Event Report PDF</label>
                     <input type="file" id="csvFileB" accept=".pdf">
+                    <select id="reportHistoryB" class="report-select">
+                        <option value="">Select a saved report…</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -793,6 +832,234 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+
+        /* ========= REPORT HISTORY (IndexedDB) ========= */
+        const REPORT_HISTORY_LIMIT = 10;
+        const reportDB = window.Dexie ? new Dexie("eventscopeReports") : null;
+        if (reportDB) {
+            reportDB.version(1).stores({
+                reports: "++id, uploadedAt"
+            });
+            reportDB.version(2).stores({
+                reports: "++id, date, savedAt"
+            }).upgrade(async tx => {
+                await tx.table("reports").toCollection().modify(entry => {
+                    const fallbackRaw = entry.fileTimestamp ?? entry.uploadedAt ?? Date.now();
+                    const fallbackNumber = Number(fallbackRaw);
+                    const fallbackDate = Number.isFinite(fallbackNumber) ? new Date(fallbackNumber) : new Date();
+                    const savedValue = entry.uploadedDate ?? (entry.uploadedAt ? new Date(Number(entry.uploadedAt)).toISOString() : new Date().toISOString());
+                    entry.fileName = entry.fileName || entry.filename || "Report";
+                    entry.date = entry.date || fallbackDate.toISOString();
+                    entry.savedAt = entry.savedAt || savedValue;
+                    if (entry.events === undefined && entry.rows !== undefined) {
+                        entry.events = entry.rows;
+                    }
+                    delete entry.filename;
+                    delete entry.uploadedAt;
+                    delete entry.uploadedDate;
+                    delete entry.fileTimestamp;
+                    delete entry.rows;
+                });
+            });
+        }
+
+        function entryDateValue(entry) {
+            if (!entry) return 0;
+            const candidate = entry.date ?? entry.savedAt;
+            if (candidate !== undefined && candidate !== null) {
+                const parsed = typeof candidate === "number" ? candidate : Date.parse(candidate);
+                if (!Number.isNaN(parsed)) return parsed;
+            }
+            const fallback = entry.fileTimestamp ?? entry.uploadedAt ?? entry.lastModified;
+            if (fallback !== undefined && fallback !== null) {
+                const numeric = typeof fallback === "number" ? fallback : Number(fallback);
+                if (Number.isFinite(numeric)) return numeric;
+            }
+            return 0;
+        }
+
+        function formatReportOption(entry) {
+            const dateValue = entryDateValue(entry);
+            const dt = dateValue ? new Date(dateValue) : null;
+            const dateStr = dt ? dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Unknown date";
+            const name = entry.fileName || entry.filename || "Report";
+            return `${dateStr} – ${name}`;
+        }
+
+        async function getStoredReports() {
+            if (!reportDB) return [];
+            try {
+                const all = await reportDB.reports.toArray();
+                const usable = all.filter(entry => entry && entry.events !== undefined);
+                usable.sort((a, b) => {
+                    const diff = entryDateValue(b) - entryDateValue(a);
+                    if (diff !== 0) return diff;
+                    return (b.id || 0) - (a.id || 0);
+                });
+                return usable.slice(0, REPORT_HISTORY_LIMIT);
+            } catch (err) {
+                console.error("Unable to read stored reports", err);
+                return [];
+            }
+        }
+
+        async function pruneExcessReports() {
+            if (!reportDB) return;
+            try {
+                const all = await reportDB.reports.toArray();
+                if (all.length <= REPORT_HISTORY_LIMIT) return;
+                all.sort((a, b) => {
+                    const diff = entryDateValue(b) - entryDateValue(a);
+                    if (diff !== 0) return diff;
+                    return (b.id || 0) - (a.id || 0);
+                });
+                const keep = new Set(all.slice(0, REPORT_HISTORY_LIMIT).map(entry => entry.id));
+                const toDelete = all.filter(entry => !keep.has(entry.id)).map(entry => entry.id);
+                if (toDelete.length) {
+                    await reportDB.reports.bulkDelete(toDelete);
+                }
+            } catch (err) {
+                console.error("Unable to prune stored reports", err);
+            }
+        }
+
+        async function populateReportDropdowns({ selectAId, selectBId } = {}) {
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (!selectA || !selectB) return [];
+            const data = await getStoredReports();
+            [
+                { element: selectA, override: selectAId },
+                { element: selectB, override: selectBId }
+            ].forEach(({ element, override }) => {
+                const previous = element.value;
+                const desired = override !== undefined ? (override == null ? "" : String(override)) : previous;
+                element.innerHTML = "<option value=\"\">Select a saved report…</option>";
+                data.forEach(item => {
+                    const opt = document.createElement("option");
+                    opt.value = String(item.id);
+                    opt.textContent = formatReportOption(item);
+                    opt.dataset.fileName = item.fileName || "";
+                    opt.dataset.date = item.date || "";
+                    opt.dataset.savedAt = item.savedAt || "";
+                    element.appendChild(opt);
+                });
+                if (desired) {
+                    element.value = desired;
+                    if (element.value !== desired) {
+                        element.selectedIndex = 0;
+                    }
+                } else {
+                    element.selectedIndex = 0;
+                }
+                const selectedOption = element.options[element.selectedIndex];
+                element.title = selectedOption ? selectedOption.textContent : "";
+            });
+            return data;
+        }
+
+        async function saveParsedReport(file, rows, target) {
+            if (!reportDB || !file) return null;
+            try {
+                const now = new Date();
+                const hasLastModified = typeof file.lastModified === "number" && !Number.isNaN(file.lastModified);
+                const fileDate = hasLastModified ? new Date(file.lastModified) : now;
+                const fileDateIso = fileDate.toISOString();
+                const events = Array.isArray(rows) ? rows.filter(r => r && r["Day of Event"]) : [];
+                const clonedEvents = JSON.parse(JSON.stringify(events));
+                const existing = await reportDB.reports
+                    .where("date")
+                    .equals(fileDateIso)
+                    .filter(entry => (entry?.fileName || "") === file.name)
+                    .first();
+                const selectionTarget = target === "A" ? "selectAId" : "selectBId";
+                if (existing?.id) {
+                    await reportDB.reports.update(existing.id, {
+                        events: clonedEvents,
+                        savedAt: now.toISOString()
+                    });
+                    await pruneExcessReports();
+                    await populateReportDropdowns({ [selectionTarget]: existing.id });
+                    return existing.id;
+                }
+                const payload = {
+                    fileName: file.name,
+                    date: fileDateIso,
+                    savedAt: now.toISOString(),
+                    events: clonedEvents
+                };
+                const id = await reportDB.reports.add(payload);
+                await pruneExcessReports();
+                await populateReportDropdowns({ [selectionTarget]: id });
+                return id;
+            } catch (err) {
+                console.error("Unable to save parsed report", err);
+                return null;
+            }
+        }
+
+        async function loadReportFromHistory(entryOrId, target) {
+            if (!reportDB) return false;
+            try {
+                let entry = entryOrId;
+                if (!entry || typeof entry !== "object") {
+                    const idNum = Number(entryOrId);
+                    if (!idNum) return false;
+                    entry = await reportDB.reports.get(idNum);
+                }
+                if (!entry || entry.events === undefined) {
+                    console.warn("Stored report is missing event data.");
+                    return false;
+                }
+                const events = Array.isArray(entry.events) ? entry.events : [];
+                const cloned = JSON.parse(JSON.stringify(events));
+                ingestRows(target, cloned);
+                return true;
+            } catch (err) {
+                console.error("Unable to load stored report", err);
+                return false;
+            }
+        }
+
+        async function initializeReportHistory() {
+            await pruneExcessReports();
+            const inputA = document.getElementById("csvFileA");
+            const inputB = document.getElementById("csvFileB");
+            if (inputA) inputA.value = "";
+            if (inputB) inputB.value = "";
+            const reports = await populateReportDropdowns({ selectBId: null });
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (selectB) {
+                selectB.value = "";
+                selectB.selectedIndex = 0;
+                const optionB = selectB.options[selectB.selectedIndex];
+                selectB.title = optionB ? optionB.textContent : "";
+            }
+            if (!selectA || !reports.length) {
+                if (selectA) {
+                    selectA.selectedIndex = 0;
+                    const optionA = selectA.options[selectA.selectedIndex];
+                    selectA.title = optionA ? optionA.textContent : "";
+                }
+                return;
+            }
+            const latest = reports[0];
+            const desired = String(latest.id);
+            selectA.value = desired;
+            if (selectA.value !== desired) {
+                selectA.selectedIndex = 0;
+            }
+            const option = selectA.options[selectA.selectedIndex];
+            selectA.title = option ? option.textContent : "";
+            const loaded = await loadReportFromHistory(latest, "A");
+            if (!loaded) {
+                selectA.value = "";
+                selectA.selectedIndex = 0;
+                const fallbackOption = selectA.options[selectA.selectedIndex];
+                selectA.title = fallbackOption ? fallbackOption.textContent : "";
+            }
+        }
 
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
@@ -1994,6 +2261,7 @@
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
                 }
+                await saveParsedReport(file, rows, target);
             } catch (err) {
                 console.error(err);
                 alert(`Unable to parse ${file.name}: ${err?.message || err}`);
@@ -2163,7 +2431,7 @@
         }
 
         /* ========= EVENT HOOKS ========= */
-        function initUI() {
+        async function initUI() {
             document.getElementById("csvFileA").addEventListener("change", e => {
                 const f = e.target.files[0];
                 processPdfUpload(f, "A");
@@ -2172,6 +2440,45 @@
                 const f = e.target.files[0];
                 processPdfUpload(f, "B");
             });
+
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+
+            if (selectA) {
+                selectA.addEventListener("change", async () => {
+                    const option = selectA.options[selectA.selectedIndex];
+                    selectA.title = option ? option.textContent : "";
+                    const id = selectA.value;
+                    if (!id) return;
+                    const loaded = await loadReportFromHistory(id, "A");
+                    if (!loaded) {
+                        alert("Unable to load the selected report from history.");
+                        selectA.value = "";
+                        selectA.selectedIndex = 0;
+                        const resetOption = selectA.options[selectA.selectedIndex];
+                        selectA.title = resetOption ? resetOption.textContent : "";
+                    }
+                });
+            }
+
+            if (selectB) {
+                selectB.addEventListener("change", async () => {
+                    const option = selectB.options[selectB.selectedIndex];
+                    selectB.title = option ? option.textContent : "";
+                    const id = selectB.value;
+                    if (!id) return;
+                    const loaded = await loadReportFromHistory(id, "B");
+                    if (!loaded) {
+                        alert("Unable to load the selected report from history.");
+                        selectB.value = "";
+                        selectB.selectedIndex = 0;
+                        const resetOption = selectB.options[selectB.selectedIndex];
+                        selectB.title = resetOption ? resetOption.textContent : "";
+                    }
+                });
+            }
+
+            await initializeReportHistory();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {
@@ -2231,7 +2538,7 @@
         window.addEventListener("resize", () => redraw());
 
         /* ========= BOOT ========= */
-        initUI();
+        initUI().catch(err => console.error("Failed to initialize UI", err));
     </script>
 
 

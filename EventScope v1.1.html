@@ -964,16 +964,33 @@
                 const now = new Date();
                 const hasLastModified = typeof file.lastModified === "number" && !Number.isNaN(file.lastModified);
                 const fileDate = hasLastModified ? new Date(file.lastModified) : now;
+                const fileDateIso = fileDate.toISOString();
                 const events = Array.isArray(rows) ? rows.filter(r => r && r["Day of Event"]) : [];
+                const clonedEvents = JSON.parse(JSON.stringify(events));
+                const existing = await reportDB.reports
+                    .where("date")
+                    .equals(fileDateIso)
+                    .filter(entry => (entry?.fileName || "") === file.name)
+                    .first();
+                const selectionTarget = target === "A" ? "selectAId" : "selectBId";
+                if (existing?.id) {
+                    await reportDB.reports.update(existing.id, {
+                        events: clonedEvents,
+                        savedAt: now.toISOString()
+                    });
+                    await pruneExcessReports();
+                    await populateReportDropdowns({ [selectionTarget]: existing.id });
+                    return existing.id;
+                }
                 const payload = {
                     fileName: file.name,
-                    date: fileDate.toISOString(),
+                    date: fileDateIso,
                     savedAt: now.toISOString(),
-                    events: JSON.parse(JSON.stringify(events))
+                    events: clonedEvents
                 };
                 const id = await reportDB.reports.add(payload);
                 await pruneExcessReports();
-                await populateReportDropdowns(target === "A" ? { selectAId: id } : { selectBId: id });
+                await populateReportDropdowns({ [selectionTarget]: id });
                 return id;
             } catch (err) {
                 console.error("Unable to save parsed report", err);
@@ -1006,6 +1023,10 @@
 
         async function initializeReportHistory() {
             await pruneExcessReports();
+            const inputA = document.getElementById("csvFileA");
+            const inputB = document.getElementById("csvFileB");
+            if (inputA) inputA.value = "";
+            if (inputB) inputB.value = "";
             const reports = await populateReportDropdowns({ selectBId: null });
             const selectA = document.getElementById("reportHistoryA");
             const selectB = document.getElementById("reportHistoryB");

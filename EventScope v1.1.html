@@ -336,6 +336,144 @@
             border: 1px solid var(--border);
         }
 
+        .hidden {
+            display: none !important;
+        }
+
+        .lighthouse-header {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .lighthouse-header .primary-area {
+            flex: 2 1 260px;
+        }
+
+        .lighthouse-header .help-area {
+            flex: 1 1 220px;
+        }
+
+        .lighthouse-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 10px 0;
+        }
+
+        .lighthouse-status {
+            font-size: .85rem;
+            color: var(--muted);
+            margin: 6px 0 0;
+        }
+
+        .lighthouse-status.pending {
+            color: #facc15;
+        }
+
+        .lighthouse-status.success {
+            color: #4ade80;
+        }
+
+        .lighthouse-status.error {
+            color: #f87171;
+        }
+
+        .lighthouse-summary {
+            font-size: .85rem;
+            line-height: 1.4;
+            background: #162752;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            color: var(--muted);
+        }
+
+        .lighthouse-summary strong {
+            color: #fff;
+        }
+
+        .lighthouse-summary .lighthouse-empty {
+            margin: 0;
+            opacity: .85;
+        }
+
+        .lighthouse-help {
+            font-size: .8rem;
+            color: var(--muted);
+            background: #15244a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .lighthouse-help strong {
+            display: block;
+            margin-bottom: 6px;
+            color: #f8fafc;
+        }
+
+        .lighthouse-help ol {
+            padding-left: 18px;
+            margin: 6px 0 0;
+        }
+
+        .lighthouse-help li {
+            margin: 4px 0;
+        }
+
+        .manual-import {
+            margin-top: 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #132246;
+            padding: 14px;
+        }
+
+        .manual-import h4 {
+            margin: 0 0 8px 0;
+        }
+
+        .manual-import label {
+            font-size: .85rem;
+            color: var(--muted);
+            display: block;
+            margin-top: 10px;
+        }
+
+        .manual-import textarea {
+            width: 100%;
+            min-height: 150px;
+            background: #0d1a36;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            padding: 8px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: .85rem;
+            resize: vertical;
+            margin-top: 6px;
+        }
+
+        .manual-import .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .manual-import .hint {
+            font-size: .75rem;
+            color: var(--muted);
+            margin-top: 8px;
+        }
+
+        .manual-import .error {
+            color: #fca5a5;
+            font-size: .8rem;
+            margin-top: 8px;
+        }
+
         /* search card (timeline-only filter) */
         .search-card {
             display: flex;
@@ -636,6 +774,45 @@
 
         <!-- TIMELINE TAB -->
         <div id="timelineTab" class="tab-content active">
+            <div class="card lighthouse-card">
+                <div class="lighthouse-header">
+                    <div class="primary-area">
+                        <h2 style="margin:0 0 6px 0;">Lighthouse Actions</h2>
+                        <p class="lighthouse-status" id="lighthouseStatus">No Lighthouse data has been loaded yet.</p>
+                        <div class="lighthouse-actions">
+                            <button id="lighthouseSync" data-proxy-endpoint="/.proxy/lighthouse/GetActions">Sync via Proxy</button>
+                            <button id="lighthouseShowManual" class="secondary">Import Lighthouse JSON…</button>
+                        </div>
+                        <div class="lighthouse-summary" id="lighthouseSummary">
+                            <p class="lighthouse-empty">Actions from Hyatt Lighthouse will appear here after you sync or import a <code>GetActions</code> payload.</p>
+                        </div>
+                    </div>
+                    <div class="help-area lighthouse-help">
+                        <strong>No proxy available?</strong>
+                        <p style="margin:0 0 6px 0;">Download the <code>GetActions</code> response from the official Lighthouse app and import it here so the timeline and AV view stay accurate.</p>
+                        <ol>
+                            <li>Open the Lighthouse scheduling site in Chrome and pick your dates.</li>
+                            <li>Open DevTools → Network, then refresh or change the view so a <code>GetActions</code> request appears.</li>
+                            <li>Right-click that request and choose <em>Save response as…</em> (or Copy → Copy response) to capture the JSON.</li>
+                            <li>Upload the saved file or paste the JSON below and click <em>Import</em>.</li>
+                        </ol>
+                    </div>
+                </div>
+                <div class="manual-import hidden" id="lighthouseManualContainer">
+                    <h4>Import Lighthouse JSON</h4>
+                    <p class="hint" id="lighthouseManualReason" style="display:none;"></p>
+                    <label for="lighthouseJsonFile">Upload saved <code>GetActions</code> JSON</label>
+                    <input type="file" id="lighthouseJsonFile" accept="application/json,.json">
+                    <label for="lighthouseJsonText">Or paste the response</label>
+                    <textarea id="lighthouseJsonText" placeholder="Paste the GetActions JSON payload here…"></textarea>
+                    <div class="hint">Imported data is treated exactly like a proxy sync so the Lighthouse timeline and AV panel stay in sync.</div>
+                    <div class="error" id="lighthouseManualError" style="display:none;"></div>
+                    <div class="actions">
+                        <button id="lighthouseImportBtn">Import JSON</button>
+                        <button id="lighthouseCancelManual" class="secondary">Cancel</button>
+                    </div>
+                </div>
+            </div>
             <div class="card">
 
                 <!-- Toolbar (calendar + bottom-anchored controls) -->
@@ -793,6 +970,353 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+
+        const lighthouseStatusEl = document.getElementById("lighthouseStatus");
+        const lighthouseSummaryEl = document.getElementById("lighthouseSummary");
+        const lighthouseManualContainer = document.getElementById("lighthouseManualContainer");
+        const lighthouseManualReasonEl = document.getElementById("lighthouseManualReason");
+        const lighthouseManualTextEl = document.getElementById("lighthouseJsonText");
+        const lighthouseManualFileEl = document.getElementById("lighthouseJsonFile");
+        const lighthouseManualErrorEl = document.getElementById("lighthouseManualError");
+
+        let lighthouseCache = new Map();
+        const lighthouseState = {
+            actions: [],
+            actionsByDate: new Map(),
+            lastSyncedAt: null,
+            lastSyncSource: null,
+            lastRange: null,
+            lastPayload: null,
+            lastComputedAt: null
+        };
+        window.lighthouseState = lighthouseState;
+        window.lighthouseCache = lighthouseCache;
+
+        function updateLighthouseStatus(message, mode = "info") {
+            if (!lighthouseStatusEl) return;
+            lighthouseStatusEl.textContent = message;
+            lighthouseStatusEl.classList.remove("success", "error", "pending");
+            if (mode === "success") lighthouseStatusEl.classList.add("success");
+            else if (mode === "error") lighthouseStatusEl.classList.add("error");
+            else if (mode === "pending") lighthouseStatusEl.classList.add("pending");
+        }
+
+        function renderLighthouseSummary() {
+            if (!lighthouseSummaryEl) return;
+            const total = lighthouseState.actions?.length || 0;
+            const updated = lighthouseState.lastSyncedAt ? lighthouseState.lastSyncedAt.toLocaleString() : "";
+            const sourceLabel = lighthouseState.lastSyncSource === "manual" ? "Manual JSON" : lighthouseState.lastSyncSource === "proxy" ? "Proxy sync" : lighthouseState.lastSyncSource || "";
+            const requestRange = (() => {
+                if (Array.isArray(lighthouseState.lastRange) && lighthouseState.lastRange.length) {
+                    const startISO = lighthouseState.lastRange[0];
+                    const endISO = lighthouseState.lastRange[1] ?? startISO;
+                    const startDate = startISO ? fromISODateLocal(startISO) : null;
+                    const endDate = endISO ? fromISODateLocal(endISO) : null;
+                    if (startDate && endDate) {
+                        const startLabel = startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                        const endLabel = endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                        return startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`;
+                    }
+                }
+                return "";
+            })();
+            if (!total) {
+                let message = "Actions from Hyatt Lighthouse will appear here after you sync or import a <code>GetActions</code> payload.";
+                if (requestRange) {
+                    message = `No actions were returned for ${requestRange}.`;
+                    if (updated) message += ` Last checked ${updated}.`;
+                } else if (updated) {
+                    message = `No Lighthouse actions are loaded. Last checked ${updated}.`;
+                }
+                lighthouseSummaryEl.innerHTML = `<p class="lighthouse-empty">${message}</p>`;
+                return;
+            }
+            const dayCount = lighthouseState.actionsByDate?.size || 0;
+            let rangeText = "";
+            if (lighthouseState.range?.start && lighthouseState.range?.end) {
+                const startLabel = lighthouseState.range.start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                const endLabel = lighthouseState.range.end.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                rangeText = `${startLabel} – ${endLabel}`;
+            } else if (requestRange) {
+                rangeText = requestRange;
+            }
+            let html = `<div><strong>${total}</strong> action${total === 1 ? "" : "s"} loaded`;
+            if (dayCount) html += ` across ${dayCount} day${dayCount === 1 ? "" : "s"}`;
+            html += ".</div>";
+            if (rangeText) html += `<div>Date range: ${rangeText}</div>`;
+            if (updated) html += `<div>Last import: ${updated}</div>`;
+            if (sourceLabel) html += `<div>Source: ${sourceLabel}</div>`;
+            lighthouseSummaryEl.innerHTML = html;
+        }
+
+        function parseLighthouseDate(value) {
+            if (!value && value !== 0) return null;
+            if (value instanceof Date) return isNaN(value) ? null : value;
+            if (typeof value === "number") {
+                let num = value;
+                if (Math.abs(num) > 1e15) num = Math.floor(num / 10000);
+                else if (Math.abs(num) < 1e12 && Math.abs(num) > 1e8) num = num * 1000; // seconds to ms
+                const d = new Date(num);
+                return isNaN(d) ? null : d;
+            }
+            if (typeof value === "string") {
+                const trimmed = value.trim();
+                if (!trimmed) return null;
+                const match = trimmed.match(/\\/Date\(([-+]?\d+)(?:[+-]\d+)?\)\\/);
+                if (match) {
+                    const raw = Number(match[1]);
+                    if (!Number.isNaN(raw)) {
+                        const ms = Math.abs(raw) > 1e15 ? Math.floor(raw / 10000) : raw;
+                        const dt = new Date(ms);
+                        if (!isNaN(dt)) return dt;
+                    }
+                }
+                if (/^\d{4}-\d{2}-\d{2}\s+\d/.test(trimmed)) {
+                    const normalized = trimmed.replace(" ", "T");
+                    const dt = new Date(normalized);
+                    if (!isNaN(dt)) return dt;
+                }
+                const dt = new Date(trimmed);
+                if (!isNaN(dt)) return dt;
+            }
+            return null;
+        }
+
+        function deriveLighthouseActionId(action) {
+            return action?.ActionID ?? action?.ActionId ?? action?.Id ?? action?.id ?? action?.Guid ?? action?.GUID ?? action?.ActionGuid ?? action?.ActionGUID ?? [action?.OrderLineId, action?.ActionStartDate || action?.StartDate || action?.StartDateTime || action?.Start, action?.FunctionSpaceName || action?.RoomName || action?.SpaceName || action?.LocationName || ""].filter(Boolean).join("|") || `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        function normalizeLighthouseActions(payload) {
+            if (!payload) return [];
+            let actions = [];
+            if (Array.isArray(payload)) actions = payload;
+            else if (Array.isArray(payload.Actions)) actions = payload.Actions;
+            else if (Array.isArray(payload.actions)) actions = payload.actions;
+            else if (Array.isArray(payload.Data?.Actions)) actions = payload.Data.Actions;
+            else if (Array.isArray(payload.Result?.Actions)) actions = payload.Result.Actions;
+            if (!Array.isArray(actions)) return [];
+            return actions.map(action => {
+                const startDate = parseLighthouseDate(action.ActionStartDate ?? action.StartDate ?? action.StartDateTime ?? action.Start ?? action.ActionStart ?? action.StartTime ?? null);
+                const endDate = parseLighthouseDate(action.ActionEndDate ?? action.EndDate ?? action.EndDateTime ?? action.End ?? action.ActionEnd ?? action.EndTime ?? null);
+                const dateKey = (() => {
+                    if (startDate) return toLocalISODate(startDate);
+                    const alt = parseLighthouseDate(action.ActionDate ?? action.Date ?? action.Day ?? null);
+                    if (alt) return toLocalISODate(alt);
+                    if (typeof action.ActionDate === "string") return action.ActionDate.slice(0, 10);
+                    if (typeof action.Date === "string") return action.Date.slice(0, 10);
+                    return null;
+                })();
+                return {
+                    id: String(deriveLighthouseActionId(action)),
+                    date: dateKey,
+                    start: startDate || null,
+                    end: endDate || null,
+                    room: action.FunctionSpaceName || action.RoomName || action.SpaceName || action.LocationName || action.Room || action.Space || "",
+                    company: action.CompanyName || action.AccountName || action.Account || "",
+                    event: action.EventName || action.FunctionName || action.Event || action.BlockName || "",
+                    type: action.ActionTypeName || action.ActionName || action.Type || "",
+                    description: action.OrderLineDescription || action.Description || action.Notes || "",
+                    status: action.Status || action.ActionStatus || action.ActionStatusName || "",
+                    raw: action
+                };
+            }).filter(entry => entry.date || entry.start || entry.end);
+        }
+
+        function persistLighthouseCacheEntries(entries, context = {}) {
+            if (!Array.isArray(entries)) entries = [];
+            const { source = null, rawPayload = null, range = null, replace = false } = context || {};
+            if (replace) lighthouseCache.clear();
+            entries.forEach(entry => {
+                const key = entry.date || (entry.start ? toLocalISODate(entry.start) : (entry.end ? toLocalISODate(entry.end) : null));
+                if (!key) return;
+                if (!lighthouseCache.has(key)) lighthouseCache.set(key, new Map());
+                lighthouseCache.get(key).set(entry.id, { ...entry, date: key });
+            });
+            lighthouseState.lastSyncedAt = new Date();
+            if (source) lighthouseState.lastSyncSource = source;
+            if (rawPayload !== undefined) lighthouseState.lastPayload = rawPayload;
+            if (range) lighthouseState.lastRange = range;
+            window.lighthouseCache = lighthouseCache;
+        }
+
+        function recomputeLighthouseState() {
+            const byDate = new Map();
+            const allActions = [];
+            let earliest = null;
+            let latest = null;
+            Array.from(lighthouseCache.keys()).sort().forEach(dateKey => {
+                const map = lighthouseCache.get(dateKey);
+                const dayList = Array.from(map.values()).sort((a, b) => {
+                    const aTime = a.start ? a.start.getTime() : (a.end ? a.end.getTime() : 0);
+                    const bTime = b.start ? b.start.getTime() : (b.end ? b.end.getTime() : 0);
+                    return aTime - bTime;
+                });
+                byDate.set(dateKey, dayList);
+                dayList.forEach(action => {
+                    allActions.push(action);
+                    const startRef = action.start || action.end || null;
+                    if (startRef) {
+                        if (!earliest || startRef < earliest) earliest = new Date(startRef);
+                        if (!latest || startRef > latest) latest = new Date(startRef);
+                    }
+                });
+            });
+            lighthouseState.actionsByDate = byDate;
+            lighthouseState.actions = allActions;
+            lighthouseState.range = earliest && latest ? { start: earliest, end: latest } : null;
+            lighthouseState.lastComputedAt = new Date();
+            window.lighthouseState = lighthouseState;
+            renderLighthouseSummary();
+            if (typeof CustomEvent === "function") {
+                document.dispatchEvent(new CustomEvent("lighthouse:updated", { detail: { state: lighthouseState } }));
+            }
+        }
+
+        function setManualImportVisible(show, reason = "") {
+            if (!lighthouseManualContainer) return;
+            lighthouseManualContainer.classList.toggle("hidden", !show);
+            if (lighthouseManualReasonEl) {
+                lighthouseManualReasonEl.textContent = reason || "";
+                lighthouseManualReasonEl.style.display = reason ? "block" : "none";
+            }
+            if (!show) {
+                resetManualImport();
+                setManualImportError("");
+            }
+        }
+
+        function resetManualImport() {
+            if (lighthouseManualTextEl) lighthouseManualTextEl.value = "";
+            if (lighthouseManualFileEl) lighthouseManualFileEl.value = "";
+        }
+
+        function setManualImportError(message) {
+            if (!lighthouseManualErrorEl) return;
+            lighthouseManualErrorEl.textContent = message || "";
+            lighthouseManualErrorEl.style.display = message ? "block" : "none";
+        }
+
+        async function getManualJsonText() {
+            const text = lighthouseManualTextEl?.value?.trim();
+            if (text) return text;
+            const file = lighthouseManualFileEl?.files?.[0];
+            if (file) return await file.text();
+            return "";
+        }
+
+        async function handleManualJsonImport() {
+            if (!lighthouseManualContainer) return;
+            setManualImportError("");
+            try {
+                const rawText = await getManualJsonText();
+                if (!rawText) throw new Error("Provide Lighthouse JSON by uploading a file or pasting the payload.");
+                let payload;
+                try {
+                    payload = JSON.parse(rawText);
+                } catch (parseErr) {
+                    throw new Error("The Lighthouse JSON could not be parsed. Make sure you copied the full GetActions response.");
+                }
+                const normalized = normalizeLighthouseActions(payload);
+                if (!normalized.length) throw new Error("No actions were found in the provided JSON.");
+                persistLighthouseCacheEntries(normalized, { source: "manual", rawPayload: payload });
+                recomputeLighthouseState();
+                updateLighthouseStatus(`Imported ${normalized.length} action${normalized.length === 1 ? "" : "s"} from manual Lighthouse JSON.`, "success");
+                setManualImportVisible(false);
+            } catch (err) {
+                console.error(err);
+                setManualImportError(err?.message || String(err));
+                updateLighthouseStatus(err?.message || "Unable to import Lighthouse JSON.", "error");
+            }
+        }
+
+        function handleManualImportCancel() {
+            setManualImportVisible(false);
+        }
+
+        async function handleManualFileSelected(event) {
+            setManualImportError("");
+            const file = event?.target?.files?.[0];
+            if (!file || !lighthouseManualTextEl) return;
+            try {
+                const text = await file.text();
+                lighthouseManualTextEl.value = text;
+            } catch (err) {
+                console.error(err);
+                setManualImportError(`Unable to read ${file.name}: ${err?.message || err}`);
+            }
+        }
+
+        function getLighthouseDateRange() {
+            const start = viewMode === "week" ? weekStart(currentDate) : new Date(currentDate);
+            const end = viewMode === "week" ? weekEnd(currentDate) : new Date(currentDate);
+            return [toLocalISODate(start), toLocalISODate(end)];
+        }
+
+        async function handleLighthouseSyncClick() {
+            if (!lighthouseStatusEl) return;
+            setManualImportError("");
+            const [startISO, endISO] = getLighthouseDateRange();
+            const rangeLabel = startISO === endISO ? startISO : `${startISO} – ${endISO}`;
+            updateLighthouseStatus(`Syncing Lighthouse actions for ${rangeLabel}…`, "pending");
+            try {
+                const payload = await fetchLighthouseActionsForDates(startISO, endISO);
+                const normalized = normalizeLighthouseActions(payload);
+                persistLighthouseCacheEntries(normalized, { source: "proxy", rawPayload: payload, range: [startISO, endISO] });
+                recomputeLighthouseState();
+                if (normalized.length) {
+                    updateLighthouseStatus(`Loaded ${normalized.length} action${normalized.length === 1 ? "" : "s"} from Lighthouse via proxy.`, "success");
+                } else {
+                    updateLighthouseStatus(`Proxy sync succeeded but returned no actions for ${rangeLabel}.`, "success");
+                }
+                setManualImportVisible(false);
+            } catch (err) {
+                console.error(err);
+                const msg = err?.message || "Unable to reach the Lighthouse proxy.";
+                updateLighthouseStatus(`${msg} Use the manual import below to load a saved GetActions payload.`, "error");
+                setManualImportVisible(true, msg);
+            }
+        }
+
+        async function fetchLighthouseActionsForDates(startISO, endISO) {
+            const syncBtn = document.getElementById("lighthouseSync");
+            const endpointRaw = syncBtn?.dataset?.proxyEndpoint || "/.proxy/lighthouse/GetActions";
+            if (!endpointRaw) throw new Error("No Lighthouse proxy endpoint is configured.");
+            let url;
+            try {
+                url = new URL(endpointRaw, window.location.href);
+            } catch (err) {
+                url = new URL(endpointRaw, window.location.origin);
+            }
+            if (startISO) url.searchParams.set("start", startISO);
+            if (endISO) url.searchParams.set("end", endISO);
+            let response;
+            try {
+                response = await fetch(url.toString(), {
+                    credentials: "include",
+                    headers: {
+                        "Accept": "application/json"
+                    }
+                });
+            } catch (networkErr) {
+                if (networkErr && (networkErr.name === "TypeError" || networkErr.message?.includes("Failed to fetch"))) {
+                    throw new Error("Network request failed. The proxy may be unreachable or blocked by CORS.");
+                }
+                throw networkErr;
+            }
+            if (!response.ok) {
+                throw new Error(`Proxy responded with status ${response.status}`);
+            }
+            try {
+                return await response.json();
+            } catch (jsonErr) {
+                throw new Error("Unable to parse Lighthouse proxy response as JSON.");
+            }
+        }
+
+        renderLighthouseSummary();
+        if (lighthouseStatusEl) {
+            updateLighthouseStatus("No Lighthouse data has been loaded yet. Use Sync or Import to load a GetActions payload.");
+        }
 
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
@@ -2172,6 +2696,26 @@
                 const f = e.target.files[0];
                 processPdfUpload(f, "B");
             });
+
+            const lighthouseSyncBtn = document.getElementById("lighthouseSync");
+            if (lighthouseSyncBtn) {
+                lighthouseSyncBtn.addEventListener("click", handleLighthouseSyncClick);
+            }
+            const lighthouseManualBtn = document.getElementById("lighthouseShowManual");
+            if (lighthouseManualBtn) {
+                lighthouseManualBtn.addEventListener("click", () => {
+                    const shouldShow = lighthouseManualContainer ? lighthouseManualContainer.classList.contains("hidden") : true;
+                    if (shouldShow) {
+                        setManualImportError("");
+                        setManualImportVisible(true);
+                    } else setManualImportVisible(false);
+                });
+            }
+            const lighthouseImportBtn = document.getElementById("lighthouseImportBtn");
+            if (lighthouseImportBtn) lighthouseImportBtn.addEventListener("click", handleManualJsonImport);
+            const lighthouseCancelBtn = document.getElementById("lighthouseCancelManual");
+            if (lighthouseCancelBtn) lighthouseCancelBtn.addEventListener("click", handleManualImportCancel);
+            if (lighthouseManualFileEl) lighthouseManualFileEl.addEventListener("change", handleManualFileSelected);
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {

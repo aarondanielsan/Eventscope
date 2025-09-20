@@ -382,6 +382,104 @@
             background: #2b3f75;
         }
 
+        .lighthouse-box {
+            background: rgba(18, 34, 70, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .lighthouse-box h3 {
+            margin: 0 0 8px 0;
+            font-size: 1.1rem;
+        }
+
+        .lighthouse-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .lighthouse-controls input[type="url"] {
+            background: #1c2a55;
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            min-width: 260px;
+            font: inherit;
+        }
+
+        .lighthouse-status {
+            font-size: .85rem;
+            opacity: .85;
+        }
+
+        .lighthouse-status .pill {
+            margin-right: 6px;
+        }
+
+        .lighthouse-panel {
+            margin-top: 10px;
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+        }
+
+        .lighthouse-room {
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+        }
+
+        .lighthouse-room:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+
+        .lighthouse-room h4 {
+            margin: 0 0 6px 0;
+            font-size: .95rem;
+            color: #cfe0ff;
+        }
+
+        .lighthouse-action {
+            font-size: .85rem;
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
+
+        .lighthouse-action strong {
+            color: #93c5fd;
+        }
+
+        .lighthouse-hint {
+            font-size: .8rem;
+            opacity: .75;
+            margin-top: 6px;
+        }
+
+        .pill.success {
+            background: rgba(22, 163, 74, 0.2);
+            border-color: #16a34a;
+            color: #bbf7d0;
+        }
+
+        .pill.warn {
+            background: rgba(234, 179, 8, 0.18);
+            border-color: #facc15;
+            color: #fef08a;
+        }
+
+        .pill.info {
+            background: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #bfdbfe;
+        }
+
         .pill {
             background: #223366;
             border: 1px solid var(--border);
@@ -638,6 +736,24 @@
         <div id="timelineTab" class="tab-content active">
             <div class="card">
 
+                <div class="lighthouse-box" id="lighthouseBox">
+                    <h3>AV Sync (Lighthouse)</h3>
+                    <div class="lighthouse-controls">
+                        <input type="url" id="lighthouseProxyInput" placeholder="https://proxy.example.com/GetActions">
+                        <button class="btn" id="lighthouseSyncBtn">Sync from Proxy</button>
+                        <button class="btn secondary" id="lighthouseImportBtn">Import JSON</button>
+                        <button class="btn secondary" id="lighthousePasteBtn">Paste JSON</button>
+                    </div>
+                    <input type="file" id="lighthouseFileInput" accept="application/json,.json" style="display:none">
+                    <div class="lighthouse-status" id="lighthouseStatus">
+                        <span class="pill info">Idle</span> No AV actions loaded. Sync from the proxy or import a downloaded JSON payload.
+                    </div>
+                    <div class="lighthouse-hint" id="lighthouseHint">If the proxy is unreachable, download the Lighthouse <code>GetActions</code> JSON and import it here to keep AV coverage in the timeline.</div>
+                    <div class="lighthouse-panel" id="lighthousePanel">
+                        <p style="opacity:.7;font-size:.85rem;">Load AV actions to see coverage by room for the selected day.</p>
+                    </div>
+                </div>
+
                 <!-- Toolbar (calendar + bottom-anchored controls) -->
                 <div class="toolbar">
                     <!-- Calendar -->
@@ -793,6 +909,17 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+
+        let lighthouseState = {
+            actions: [],
+            byRoom: new Map(),
+            lastUpdated: null,
+            source: null,
+            status: "idle",
+            error: null
+        };
+        const LIGHTHOUSE_CACHE_KEY = "eventscope.lighthouse.cache.v1";
+        const LIGHTHOUSE_PROXY_KEY = "eventscope.lighthouse.proxy.url";
 
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
@@ -975,6 +1102,17 @@
         Object.entries(SUBORDER).forEach(([p, subs]) => subs.forEach(s => PARENT_MAP[s] = p));
 
         /* ========= UTILS ========= */
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return "";
+            return String(str).replace(/[&<>"']/g, ch => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;"
+            }[ch] || ch));
+        }
+
         function parseDayOfEvent(str) {
             if (!str) return null;
             let d = new Date(str);
@@ -1112,10 +1250,449 @@
             }
             return out;
         }
+
+        function roomsForBase(rooms, base) {
+            const filtered = rooms.filter(r => (PARENT_MAP[r] || r) === base);
+            return filtered.length ? filtered : rooms;
+        }
         // Convert "YYYY-MM-DD" into a Date at LOCAL midnight
         function fromISODateLocal(iso) {
             const [y, m, d] = iso.split("-").map(Number);
             return new Date(y, m - 1, d, 0, 0, 0, 0);
+        }
+
+        /* ========= LIGHTHOUSE (AV ACTIONS) ========= */
+        function getSafeStorage() {
+            try {
+                return window.localStorage;
+            } catch (err) {
+                console.warn("Local storage unavailable", err);
+                return null;
+            }
+        }
+
+        function saveProxyPreference(url) {
+            const store = getSafeStorage();
+            if (!store) return;
+            try {
+                if (url) store.setItem(LIGHTHOUSE_PROXY_KEY, url);
+            } catch (err) {
+                console.warn("Unable to store proxy preference", err);
+            }
+        }
+
+        function loadProxyPreference() {
+            const store = getSafeStorage();
+            if (!store) return "";
+            try {
+                return store.getItem(LIGHTHOUSE_PROXY_KEY) || "";
+            } catch (err) {
+                console.warn("Unable to read proxy preference", err);
+                return "";
+            }
+        }
+
+        function extractActionArray(payload, visited = new Set()) {
+            if (!payload) return [];
+            if (Array.isArray(payload)) return payload;
+            if (typeof payload !== "object") return [];
+            if (visited.has(payload)) return [];
+            visited.add(payload);
+
+            for (const [key, value] of Object.entries(payload)) {
+                if (/action/i.test(key) && Array.isArray(value)) return value;
+            }
+            for (const value of Object.values(payload)) {
+                if (Array.isArray(value) && value.length && typeof value[0] === "object") return value;
+            }
+            for (const value of Object.values(payload)) {
+                if (value && typeof value === "object") {
+                    const nested = extractActionArray(value, visited);
+                    if (nested.length) return nested;
+                }
+            }
+            return [];
+        }
+
+        function parseActionDate(value) {
+            if (!value && value !== 0) return null;
+            if (value instanceof Date) return isNaN(value) ? null : new Date(value.getTime());
+            if (typeof value === "number") {
+                const d = new Date(value);
+                return isNaN(d) ? null : d;
+            }
+            if (typeof value === "string") {
+                const trimmed = value.trim();
+                if (!trimmed) return null;
+                if (/^\d+$/.test(trimmed)) {
+                    const num = Number(trimmed);
+                    if (!Number.isNaN(num)) {
+                        const d = new Date(num);
+                        if (!isNaN(d)) return d;
+                    }
+                }
+                const direct = new Date(trimmed);
+                if (!isNaN(direct)) return direct;
+                const iso = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+                const alt = new Date(iso);
+                if (!isNaN(alt)) return alt;
+            }
+            return null;
+        }
+
+        function composeActionDate(datePart, timePart) {
+            if (!datePart) return null;
+            if (!timePart) return parseActionDate(datePart);
+            return parseActionDate(`${datePart} ${timePart}`);
+        }
+
+        function normalizeLighthouseActions(payload) {
+            const rawActions = extractActionArray(payload);
+            if (!rawActions.length) return [];
+            const normalized = [];
+
+            rawActions.forEach((act, idx) => {
+                if (!act || typeof act !== "object") return;
+                let start = parseActionDate(act.StartDateTime || act.startDateTime || act.Start || act.start || act.StartDateTimeLocal || act.StartDateTimeUTC);
+                let end = parseActionDate(act.EndDateTime || act.endDateTime || act.End || act.end || act.EndDateTimeLocal || act.EndDateTimeUTC);
+                if (!start && (act.StartDate || act.startDate)) {
+                    start = composeActionDate(act.StartDate || act.startDate, act.StartTime || act.startTime || act.StartTimeLocal || act.StartTimeUTC);
+                }
+                if (!end && (act.EndDate || act.endDate)) {
+                    end = composeActionDate(act.EndDate || act.endDate, act.EndTime || act.endTime || act.EndTimeLocal || act.EndTimeUTC);
+                }
+                if (!start && act.Date) start = composeActionDate(act.Date, act.Time || act.StartTime);
+                if (!end && act.Date) end = composeActionDate(act.Date, act.EndTime || act.Time);
+                if (!start || !end) return;
+
+                let rooms = [];
+                if (Array.isArray(act.Rooms)) rooms = act.Rooms.flatMap(r => normalizeRooms(r));
+                else if (Array.isArray(act.FunctionSpaces)) rooms = act.FunctionSpaces.flatMap(r => normalizeRooms(r));
+                else if (Array.isArray(act.Locations)) rooms = act.Locations.flatMap(r => normalizeRooms(r));
+                else {
+                    const location = act.Location || act.location || act.Room || act.RoomName || act.FunctionSpace || act.FunctionSpaceName || act.Space || act.SpaceName || act.Area || "";
+                    rooms = normalizeRooms(location);
+                }
+                rooms = Array.from(new Set((rooms || []).map(r => String(r).trim()).filter(Boolean)));
+                if (!rooms.length) return;
+
+                const vendor = act.ResourceName || act.resourceName || act.Department || act.department || act.DepartmentName || act.Vendor || act.Supplier || act.ServiceProvider || "";
+                const description = act.ActionName || act.actionName || act.Description || act.description || act.Service || act.service || "";
+                const status = act.Status || act.status || "";
+                const id = act.ActionId || act.ActionID || act.Id || act.id || act.Guid || act.guid || act.UUID || act.uuid || idx;
+                const cacheKey = `${id ?? idx}-${start.getTime()}-${end.getTime()}-${rooms.join("|")}`;
+
+                normalized.push({
+                    id: String(id ?? idx),
+                    cacheKey,
+                    start,
+                    end,
+                    rooms,
+                    vendor: vendor ? String(vendor) : "",
+                    description: description ? String(description) : "",
+                    status: status ? String(status) : "",
+                    raw: act
+                });
+            });
+
+            normalized.sort((a, b) => a.start - b.start);
+            return normalized;
+        }
+
+        function buildLighthouseIndex(actions) {
+            const index = new Map();
+            actions.forEach(action => {
+                if (!action.rooms || !action.rooms.length) return;
+                const startDay = new Date(action.start.getFullYear(), action.start.getMonth(), action.start.getDate(), 0, 0, 0, 0);
+                const endDay = new Date(action.end.getFullYear(), action.end.getMonth(), action.end.getDate(), 0, 0, 0, 0);
+                const cursor = new Date(startDay);
+                while (cursor <= endDay) {
+                    const iso = toLocalISODate(cursor);
+                    action.rooms.forEach(room => {
+                        const key = `${iso}||${room}`;
+                        if (!index.has(key)) index.set(key, []);
+                        index.get(key).push(action);
+                    });
+                    cursor.setDate(cursor.getDate() + 1);
+                }
+            });
+            for (const list of index.values()) {
+                list.sort((a, b) => a.start - b.start);
+            }
+            return index;
+        }
+
+        function collectLighthouseMatches(dayDate, start, end, rooms) {
+            if (!rooms || !rooms.length || !lighthouseState.byRoom || !lighthouseState.byRoom.size) return [];
+            const dayIso = toLocalISODate(dayDate);
+            const matches = [];
+            const seen = new Set();
+            rooms.forEach(room => {
+                const key = `${dayIso}||${room}`;
+                const list = lighthouseState.byRoom.get(key);
+                if (!list || !list.length) return;
+                list.forEach(action => {
+                    if (start < action.end && end > action.start) {
+                        if (!seen.has(action.cacheKey)) {
+                            seen.add(action.cacheKey);
+                            matches.push(action);
+                        }
+                    }
+                });
+            });
+            matches.sort((a, b) => a.start - b.start);
+            return matches;
+        }
+
+        function persistLighthouseCache() {
+            const store = getSafeStorage();
+            if (!store) return;
+            if (!lighthouseState.actions.length) {
+                try {
+                    store.removeItem(LIGHTHOUSE_CACHE_KEY);
+                } catch (err) {
+                    console.warn("Unable to clear lighthouse cache", err);
+                }
+                return;
+            }
+            const payload = {
+                timestamp: lighthouseState.lastUpdated,
+                source: lighthouseState.source,
+                actions: lighthouseState.actions.map(action => ({
+                    id: action.id,
+                    key: action.cacheKey,
+                    start: action.start.toISOString(),
+                    end: action.end.toISOString(),
+                    rooms: action.rooms,
+                    vendor: action.vendor,
+                    description: action.description,
+                    status: action.status
+                }))
+            };
+            try {
+                store.setItem(LIGHTHOUSE_CACHE_KEY, JSON.stringify(payload));
+            } catch (err) {
+                console.warn("Unable to store lighthouse cache", err);
+            }
+        }
+
+        function restoreLighthouseCache() {
+            const store = getSafeStorage();
+            if (!store) return;
+            let raw;
+            try {
+                raw = store.getItem(LIGHTHOUSE_CACHE_KEY);
+            } catch (err) {
+                console.warn("Unable to read lighthouse cache", err);
+                return;
+            }
+            if (!raw) return;
+            try {
+                const saved = JSON.parse(raw);
+                if (!saved?.actions?.length) return;
+                const normalized = saved.actions.map((act, idx) => {
+                    const start = parseActionDate(act.start);
+                    const end = parseActionDate(act.end);
+                    if (!start || !end) return null;
+                    const rooms = Array.isArray(act.rooms) ? act.rooms.map(r => String(r).trim()).filter(Boolean) : [];
+                    if (!rooms.length) return null;
+                    return {
+                        id: act.id || `cached-${idx}`,
+                        cacheKey: act.key || `${act.id || idx}-${start.getTime()}-${end.getTime()}-${rooms.join("|")}`,
+                        start,
+                        end,
+                        rooms,
+                        vendor: act.vendor || "",
+                        description: act.description || "",
+                        status: act.status || "",
+                        fromCache: true
+                    };
+                }).filter(Boolean);
+                if (!normalized.length) return;
+                hydrateLighthouseState(normalized, {
+                    source: saved.source || "cache",
+                    timestamp: saved.timestamp || Date.now(),
+                    skipCache: true,
+                    message: "Restored AV actions from previous session."
+                });
+            } catch (err) {
+                console.warn("Unable to parse lighthouse cache", err);
+            }
+        }
+
+        function updateLighthouseStatus(extraMessage) {
+            const statusEl = document.getElementById("lighthouseStatus");
+            const hintEl = document.getElementById("lighthouseHint");
+            if (!statusEl) return;
+
+            if (lighthouseState.status === "loading") {
+                statusEl.innerHTML = `<span class="pill info">Syncing…</span> Contacting Lighthouse proxy…`;
+                if (hintEl) hintEl.textContent = "If the proxy fails, use Import JSON to provide the GetActions payload manually.";
+                return;
+            }
+
+            if (lighthouseState.error) {
+                statusEl.innerHTML = `<span class="pill warn">Error</span> ${escapeHtml(lighthouseState.error)}`;
+                if (extraMessage) statusEl.innerHTML += `<div class="lighthouse-hint">${escapeHtml(extraMessage)}</div>`;
+                if (hintEl) hintEl.textContent = "Download the Lighthouse GetActions JSON and import it to keep AV coverage when the proxy is offline.";
+                return;
+            }
+
+            if (!lighthouseState.actions.length) {
+                statusEl.innerHTML = `<span class="pill info">Idle</span> ${escapeHtml(extraMessage || "No AV actions loaded. Sync from the proxy or import a downloaded JSON payload.")}`;
+                if (hintEl) hintEl.textContent = "If the proxy is unreachable, download the Lighthouse GetActions JSON and import it here to keep AV coverage in the timeline.";
+                return;
+            }
+
+            const updated = new Date(lighthouseState.lastUpdated || Date.now());
+            const timestamp = `${updated.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${updated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+            statusEl.innerHTML = `<span class="pill success">AV Ready</span> ${lighthouseState.actions.length} action${lighthouseState.actions.length === 1 ? "" : "s"} loaded via ${escapeHtml(lighthouseState.source || "manual")} on ${timestamp}.`;
+            if (extraMessage) statusEl.innerHTML += `<div class="lighthouse-hint">${escapeHtml(extraMessage)}</div>`;
+            if (hintEl) hintEl.textContent = "AV highlights appear on the timeline and in this panel for the selected day.";
+        }
+
+        function renderLighthousePanel() {
+            const host = document.getElementById("lighthousePanel");
+            if (!host) return;
+            host.innerHTML = "";
+            if (!lighthouseState.actions.length) {
+                host.innerHTML = "<p style='opacity:.7;font-size:.85rem;'>Load AV actions to see coverage by room for the selected day.</p>";
+                return;
+            }
+            const dayStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 0, 0, 0, 0);
+            const dayEnd = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 23, 59, 59, 999);
+            const matches = lighthouseState.actions.filter(action => action.start <= dayEnd && action.end >= dayStart);
+            if (!matches.length) {
+                host.innerHTML = "<p style='opacity:.7;font-size:.85rem;'>No AV actions scheduled for this day.</p>";
+                return;
+            }
+            const byRoom = new Map();
+            matches.forEach(action => {
+                const rooms = action.rooms && action.rooms.length ? action.rooms : ["(Unassigned Room)"];
+                rooms.forEach(room => {
+                    if (!byRoom.has(room)) byRoom.set(room, new Map());
+                    const store = byRoom.get(room);
+                    if (!store.has(action.cacheKey)) store.set(action.cacheKey, action);
+                });
+            });
+            const sortedRooms = Array.from(byRoom.keys()).sort((a, b) => a.localeCompare(b));
+            sortedRooms.forEach(room => {
+                const section = document.createElement("div");
+                section.className = "lighthouse-room";
+                section.innerHTML = `<h4>${escapeHtml(room)}</h4>`;
+                const entries = Array.from(byRoom.get(room).values()).sort((a, b) => a.start - b.start);
+                entries.forEach(action => {
+                    const label = action.description || action.vendor || "Action";
+                    const vendorText = action.vendor && action.vendor !== label ? ` · ${escapeHtml(action.vendor)}` : (action.vendor && !action.description ? ` · ${escapeHtml(action.vendor)}` : "");
+                    const statusText = action.status ? ` <span style="opacity:.7;">(${escapeHtml(action.status)})</span>` : "";
+                    const row = document.createElement("div");
+                    row.className = "lighthouse-action";
+                    row.innerHTML = `<strong>${escapeHtml(label)}</strong> · ${formatAMPM(action.start)} – ${formatAMPM(action.end)}${vendorText}${statusText}`;
+                    section.appendChild(row);
+                });
+                host.appendChild(section);
+            });
+        }
+
+        function hydrateLighthouseState(normalized, meta = {}) {
+            lighthouseState.actions = normalized;
+            lighthouseState.byRoom = buildLighthouseIndex(normalized);
+            lighthouseState.lastUpdated = meta.timestamp || Date.now();
+            lighthouseState.source = meta.source || "manual";
+            lighthouseState.status = "ready";
+            lighthouseState.error = null;
+            updateLighthouseStatus(meta.message);
+            renderLighthousePanel();
+            if (!meta.skipCache) persistLighthouseCache();
+            redraw();
+        }
+
+        function ingestLighthousePayload(payload, meta = {}) {
+            lighthouseState.error = null;
+            const normalized = normalizeLighthouseActions(payload);
+            if (!normalized.length) {
+                lighthouseState.status = "idle";
+                updateLighthouseStatus(meta.emptyMessage || "No AV actions were found in the payload.");
+                return false;
+            }
+            hydrateLighthouseState(normalized, meta);
+            return true;
+        }
+
+        function handleLighthouseJsonText(text, sourceLabel) {
+            if (!text) return;
+            let parsed;
+            try {
+                parsed = JSON.parse(text);
+            } catch (err) {
+                console.error("Invalid Lighthouse JSON", err);
+                lighthouseState.status = "idle";
+                lighthouseState.error = "Invalid JSON payload.";
+                updateLighthouseStatus("Unable to parse the provided JSON. Ensure it matches the GetActions payload.");
+                alert("The provided text is not valid JSON.");
+                return;
+            }
+            const ok = ingestLighthousePayload(parsed, {
+                source: sourceLabel || "manual",
+                message: sourceLabel ? `Imported AV actions from ${sourceLabel}.` : "Imported AV actions.",
+                timestamp: Date.now()
+            });
+            if (!ok && !lighthouseState.error) {
+                alert("No AV actions were found in the provided JSON payload.");
+            }
+        }
+
+        function handleLighthouseFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = evt => {
+                const text = typeof evt.target?.result === "string" ? evt.target.result : "";
+                handleLighthouseJsonText(text, file.name ? `file: ${file.name}` : "file import");
+            };
+            reader.onerror = () => {
+                lighthouseState.status = "idle";
+                lighthouseState.error = `Unable to read ${file.name}.`;
+                updateLighthouseStatus("Proxy sync unavailable. Try importing the JSON again.");
+                alert(`Unable to read ${file.name}.`);
+            };
+            reader.readAsText(file);
+        }
+
+        function handleLighthousePaste() {
+            const text = prompt("Paste the Lighthouse GetActions JSON payload:");
+            if (!text) return;
+            handleLighthouseJsonText(text, "manual paste");
+        }
+
+        async function handleLighthouseProxySync() {
+            const input = document.getElementById("lighthouseProxyInput");
+            if (!input) return;
+            const url = (input.value || "").trim();
+            if (!url) {
+                alert("Enter the Lighthouse proxy URL before syncing.");
+                input.focus();
+                return;
+            }
+            lighthouseState.status = "loading";
+            lighthouseState.error = null;
+            updateLighthouseStatus();
+            try {
+                const response = await fetch(url, { credentials: "omit" });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const payload = await response.json();
+                const ok = ingestLighthousePayload(payload, {
+                    source: "proxy",
+                    message: "Synced from proxy.",
+                    timestamp: Date.now()
+                });
+                if (ok) saveProxyPreference(url);
+                lighthouseState.status = ok ? "ready" : "idle";
+            } catch (err) {
+                console.error("Proxy sync failed", err);
+                lighthouseState.status = "idle";
+                lighthouseState.error = err?.message || "Proxy request failed.";
+                updateLighthouseStatus("Proxy sync failed. Import the downloaded JSON payload instead.");
+            }
         }
 
         /* ======== SEARCH FILTER (timeline-only) ======== */
@@ -1140,16 +1717,26 @@
         }
 
         /* ========= TOOLTIP FOR DAILY ========= */
-        function groupTooltip(room, items, status) {
+        function groupTooltip(room, items, status, avMatches = []) {
             items.sort((a, b) => a.start - b.start);
             let html = `<div style="padding:6px;">`;
-            if (items[0]?.event) html += `<div style="font-weight:700; margin-bottom:4px;">${items[0].event}</div>`;
-            if (status) html += `<div style="margin-bottom:6px"><span style="padding:2px 6px;border-radius:6px;background:#eef;border:1px solid #ccd">${status}</span></div>`;
-            html += `<div style="font-weight:600; margin-bottom:4px;">${room}</div>`;
+            if (items[0]?.event) html += `<div style="font-weight:700; margin-bottom:4px;">${escapeHtml(items[0].event)}</div>`;
+            if (status) html += `<div style="margin-bottom:6px"><span style="padding:2px 6px;border-radius:6px;background:#eef;border:1px solid #ccd">${escapeHtml(status)}</span></div>`;
+            html += `<div style="font-weight:600; margin-bottom:4px;">${escapeHtml(room)}</div>`;
             items.forEach(e => {
                 const time = `${formatAMPM(e.start)} – ${formatAMPM(e.end)}`;
-                html += `<div><b>${e.function||""}</b> · ${time} · ${e.setup||""}</div>`;
+                html += `<div><b>${escapeHtml(e.function||"")}</b> · ${time} · ${escapeHtml(e.setup||"")}</div>`;
             });
+            if (avMatches.length) {
+                html += `<div style="margin-top:6px;font-weight:600;">AV Coverage</div>`;
+                avMatches.forEach(action => {
+                    const time = `${formatAMPM(action.start)} – ${formatAMPM(action.end)}`;
+                    const label = action.description || action.vendor || "Action";
+                    const vendorText = action.vendor && action.vendor !== label ? ` · ${escapeHtml(action.vendor)}` : (action.vendor && !action.description ? ` · ${escapeHtml(action.vendor)}` : "");
+                    const statusText = action.status ? ` <span style="opacity:.7;">(${escapeHtml(action.status)})</span>` : "";
+                    html += `<div style="font-size:.85rem;">${escapeHtml(label)} · ${time}${vendorText}${statusText}</div>`;
+                });
+            }
             html += `</div>`;
             return html;
         }
@@ -1191,6 +1778,21 @@
             currentDate = chosen;
 
             const groups = {};
+            const ensureAv = group => {
+                if (!group.av) group.av = [];
+                if (!group.avSet) group.avSet = new Set();
+            };
+            const recordAvMatches = (group, matches) => {
+                if (!group || !matches || !matches.length) return;
+                ensureAv(group);
+                group.highlight = true;
+                matches.forEach(action => {
+                    if (!group.avSet.has(action.cacheKey)) {
+                        group.avSet.add(action.cacheKey);
+                        group.av.push(action);
+                    }
+                });
+            };
             let dataMin = null,
                 dataMax = null;
 
@@ -1218,6 +1820,7 @@
                         label,
                         base
                     }) => {
+                        const baseRooms = roomsForBase(rooms, base);
                         if (sameDay(d, chosen)) {
                             const key = label + "||" + company + "||" + status + "||" + d.toDateString();
                             if (!groups[key]) groups[key] = {
@@ -1227,7 +1830,10 @@
                                 status,
                                 items: [],
                                 min: start,
-                                max: midnight
+                                max: midnight,
+                                av: [],
+                                avSet: new Set(),
+                                highlight: false
                             };
                             groups[key].items.push({
                                 event: eventName,
@@ -1238,6 +1844,7 @@
                             });
                             if (start < groups[key].min) groups[key].min = start;
                             if (midnight > groups[key].max) groups[key].max = midnight;
+                            recordAvMatches(groups[key], collectLighthouseMatches(d, start, midnight, baseRooms));
                             if (!dataMin || start < dataMin) dataMin = start;
                             if (!dataMax || midnight > dataMax) dataMax = midnight;
                         }
@@ -1250,7 +1857,10 @@
                                 status,
                                 items: [],
                                 min: nextDay,
-                                max: endNext
+                                max: endNext,
+                                av: [],
+                                avSet: new Set(),
+                                highlight: false
                             };
                             groups[key].items.push({
                                 event: eventName,
@@ -1261,6 +1871,8 @@
                             });
                             if (nextDay < groups[key].min) groups[key].min = nextDay;
                             if (endNext > groups[key].max) groups[key].max = endNext;
+                            const segStart = new Date(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate(), 0, 0, 0, 0);
+                            recordAvMatches(groups[key], collectLighthouseMatches(nextDay, segStart, endNext, baseRooms));
                             if (!dataMin || nextDay < dataMin) dataMin = nextDay;
                             if (!dataMax || endNext > dataMax) dataMax = endNext;
                         }
@@ -1273,6 +1885,7 @@
                         label,
                         base
                     }) => {
+                        const baseRooms = roomsForBase(rooms, base);
                         const key = label + "||" + company + "||" + status + "||" + d.toDateString();
                         if (!groups[key]) groups[key] = {
                             roomLabel: label,
@@ -1281,7 +1894,10 @@
                             status,
                             items: [],
                             min: start,
-                            max: end
+                            max: end,
+                            av: [],
+                            avSet: new Set(),
+                            highlight: false
                         };
                         groups[key].items.push({
                             event: eventName,
@@ -1292,6 +1908,7 @@
                         });
                         if (start < groups[key].min) groups[key].min = start;
                         if (end > groups[key].max) groups[key].max = end;
+                        recordAvMatches(groups[key], collectLighthouseMatches(d, start, end, baseRooms));
                     });
                     if (!dataMin || start < dataMin) dataMin = start;
                     if (!dataMax || end > dataMax) dataMax = end;
@@ -1304,7 +1921,9 @@
                 Object.values(groups).forEach(g => {
                     if (g.base === roomBase && sameDay(g.min, chosen)) {
                         usedBases.add(roomBase);
-                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), "", g.min, g.max]);
+                        const avList = g.av ? g.av.slice().sort((a, b) => a.start - b.start) : [];
+                        const style = g.highlight ? "fill-color:#f97316;fill-opacity:0.75;stroke-color:#ea580c;stroke-width:1.4;" : "";
+                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status, avList), style, g.min, g.max]);
                     }
                 });
                 if (showAllRooms && !usedBases.has(roomBase)) {
@@ -1491,23 +2110,31 @@
                     const roomsList = has ? Array.from(perCompany.get(company).get(dayIso)).sort() : [];
                     const segStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
                     const segEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-                    const style = has ? "" : "color:#E5E7EB;";
+                    const avMatches = has ? collectLighthouseMatches(d, segStart, segEnd, roomsList) : [];
+                    let style = has ? "" : "color:#E5E7EB;";
+                    if (avMatches.length) style += "fill-color:#f97316;fill-opacity:0.55;stroke-color:#ea580c;stroke-width:1.3;";
 
-                    const weekRange = `${ws.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${we.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
                     const span = companySpans.get(company);
                     const spanText = span ?
                         `${span.start.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${span.end.toLocaleDateString("en-US",{month:"short",day:"numeric"})}` :
                         "";
 
-                    const tip = `
-  <div style="padding:6px;max-width:260px;">
-    <div style="font-weight:700;margin-bottom:4px;">${company}</div>
-    <div><b>${d.toLocaleDateString("en-US",{weekday:"short", month:"short", day:"numeric"})}</b></div>
-    <div style="margin:6px 0;"><i>In-house:</i> ${spanText}</div>
-    <div><b>Rooms:</b> ${roomsList.join(", ")}</div>
-  </div>
-`.trim();
-
+                    const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                    let tip = `<div style="padding:6px;max-width:260px;">`;
+                    tip += `<div style="font-weight:700;margin-bottom:4px;">${escapeHtml(company)}</div>`;
+                    tip += `<div><b>${escapeHtml(dayLabel)}</b></div>`;
+                    tip += `<div style="margin:6px 0;"><i>In-house:</i> ${escapeHtml(spanText || "")}</div>`;
+                    tip += `<div><b>Rooms:</b> ${roomsList.map(r => escapeHtml(r)).join(", ")}</div>`;
+                    if (avMatches.length) {
+                        tip += `<div style="margin-top:6px;"><b>AV Actions:</b></div>`;
+                        avMatches.forEach(action => {
+                            const label = action.description || action.vendor || "Action";
+                            const vendorText = action.vendor && action.vendor !== label ? ` · ${escapeHtml(action.vendor)}` : (action.vendor && !action.description ? ` · ${escapeHtml(action.vendor)}` : "");
+                            const statusText = action.status ? ` <span style="opacity:.7;">(${escapeHtml(action.status)})</span>` : "";
+                            tip += `<div style="font-size:.85rem;">${escapeHtml(label)} · ${formatAMPM(action.start)} – ${formatAMPM(action.end)}${vendorText}${statusText}</div>`;
+                        });
+                    }
+                    tip += `</div>`;
 
                     rows.push([company, "", tip, style, segStart, segEnd]);
                 }
@@ -2101,6 +2728,7 @@
         function syncDateUI(d) {
             renderCalendar(d);
             syncDateLabel();
+            renderLighthousePanel();
         }
 
         /* ========= SEARCH UI (autosuggest) ========= */
@@ -2164,6 +2792,37 @@
 
         /* ========= EVENT HOOKS ========= */
         function initUI() {
+            const proxyInput = document.getElementById("lighthouseProxyInput");
+            const syncBtn = document.getElementById("lighthouseSyncBtn");
+            const importBtn = document.getElementById("lighthouseImportBtn");
+            const pasteBtn = document.getElementById("lighthousePasteBtn");
+            const fileInput = document.getElementById("lighthouseFileInput");
+
+            if (proxyInput) {
+                const savedProxy = loadProxyPreference();
+                if (savedProxy) proxyInput.value = savedProxy;
+                proxyInput.addEventListener("keydown", e => {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleLighthouseProxySync();
+                    }
+                });
+            }
+            if (syncBtn) syncBtn.addEventListener("click", handleLighthouseProxySync);
+            if (importBtn && fileInput) {
+                importBtn.addEventListener("click", () => fileInput.click());
+                fileInput.addEventListener("change", e => {
+                    const file = e.target.files && e.target.files[0];
+                    if (file) handleLighthouseFile(file);
+                    e.target.value = "";
+                });
+            }
+            if (pasteBtn) pasteBtn.addEventListener("click", handleLighthousePaste);
+
+            updateLighthouseStatus();
+            renderLighthousePanel();
+            restoreLighthouseCache();
+
             document.getElementById("csvFileA").addEventListener("change", e => {
                 const f = e.target.files[0];
                 processPdfUpload(f, "A");

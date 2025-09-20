@@ -840,83 +840,203 @@
             reportDB.version(1).stores({
                 reports: "++id, uploadedAt"
             });
+            reportDB.version(2).stores({
+                reports: "++id, date, savedAt"
+            }).upgrade(async tx => {
+                await tx.table("reports").toCollection().modify(entry => {
+                    const fallbackRaw = entry.fileTimestamp ?? entry.uploadedAt ?? Date.now();
+                    const fallbackNumber = Number(fallbackRaw);
+                    const fallbackDate = Number.isFinite(fallbackNumber) ? new Date(fallbackNumber) : new Date();
+                    const savedValue = entry.uploadedDate ?? (entry.uploadedAt ? new Date(Number(entry.uploadedAt)).toISOString() : new Date().toISOString());
+                    entry.fileName = entry.fileName || entry.filename || "Report";
+                    entry.date = entry.date || fallbackDate.toISOString();
+                    entry.savedAt = entry.savedAt || savedValue;
+                    if (entry.events === undefined && entry.rows !== undefined) {
+                        entry.events = entry.rows;
+                    }
+                    delete entry.filename;
+                    delete entry.uploadedAt;
+                    delete entry.uploadedDate;
+                    delete entry.fileTimestamp;
+                    delete entry.rows;
+                });
+            });
+        }
+
+        function entryDateValue(entry) {
+            if (!entry) return 0;
+            const candidate = entry.date ?? entry.savedAt;
+            if (candidate !== undefined && candidate !== null) {
+                const parsed = typeof candidate === "number" ? candidate : Date.parse(candidate);
+                if (!Number.isNaN(parsed)) return parsed;
+            }
+            const fallback = entry.fileTimestamp ?? entry.uploadedAt ?? entry.lastModified;
+            if (fallback !== undefined && fallback !== null) {
+                const numeric = typeof fallback === "number" ? fallback : Number(fallback);
+                if (Number.isFinite(numeric)) return numeric;
+            }
+            return 0;
+        }
+
+        function formatReportOption(entry) {
+            const dateValue = entryDateValue(entry);
+            const dt = dateValue ? new Date(dateValue) : null;
+            const dateStr = dt ? dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Unknown date";
+            const name = entry.fileName || entry.filename || "Report";
+            return `${dateStr} – ${name}`;
         }
 
         async function getStoredReports() {
             if (!reportDB) return [];
             try {
-                return await reportDB.reports.orderBy("uploadedAt").reverse().limit(REPORT_HISTORY_LIMIT).toArray();
+                const all = await reportDB.reports.toArray();
+                const usable = all.filter(entry => entry && entry.events !== undefined);
+                usable.sort((a, b) => {
+                    const diff = entryDateValue(b) - entryDateValue(a);
+                    if (diff !== 0) return diff;
+                    return (b.id || 0) - (a.id || 0);
+                });
+                return usable.slice(0, REPORT_HISTORY_LIMIT);
             } catch (err) {
                 console.error("Unable to read stored reports", err);
                 return [];
             }
         }
 
-        function formatReportOption(entry) {
-            const dt = new Date(entry.uploadedAt);
-            const dateStr = dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-            const timeStr = dt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-            return `${dateStr} ${timeStr} – ${entry.filename}`;
-        }
-
-        async function populateReportDropdowns() {
-            const selectA = document.getElementById("reportHistoryA");
-            const selectB = document.getElementById("reportHistoryB");
-            if (!selectA || !selectB) return;
-            await pruneExcessReports();
-            const data = await getStoredReports();
-            [selectA, selectB].forEach(sel => {
-                const current = sel.value;
-                sel.innerHTML = "<option value=\"\">Select a saved report…</option>";
-                data.forEach(item => {
-                    const opt = document.createElement("option");
-                    opt.value = String(item.id);
-                    opt.textContent = formatReportOption(item);
-                    opt.dataset.filename = item.filename;
-                    opt.dataset.timestamp = String(item.uploadedAt);
-                    opt.dataset.date = item.uploadedDate || "";
-                    sel.appendChild(opt);
-                });
-                if (current) {
-                    sel.value = current;
-                    if (sel.value !== current) {
-                        sel.selectedIndex = 0;
-                    }
-                }
-                const selectedOption = sel.options[sel.selectedIndex];
-                sel.title = selectedOption ? selectedOption.textContent : "";
-            });
-        }
-
         async function pruneExcessReports() {
             if (!reportDB) return;
             try {
-                const total = await reportDB.reports.count();
-                if (total <= REPORT_HISTORY_LIMIT) return;
-                const excess = await reportDB.reports.orderBy("uploadedAt").toArray();
-                const toDelete = excess.slice(0, Math.max(0, excess.length - REPORT_HISTORY_LIMIT));
+                const all = await reportDB.reports.toArray();
+                if (all.length <= REPORT_HISTORY_LIMIT) return;
+                all.sort((a, b) => {
+                    const diff = entryDateValue(b) - entryDateValue(a);
+                    if (diff !== 0) return diff;
+                    return (b.id || 0) - (a.id || 0);
+                });
+                const keep = new Set(all.slice(0, REPORT_HISTORY_LIMIT).map(entry => entry.id));
+                const toDelete = all.filter(entry => !keep.has(entry.id)).map(entry => entry.id);
                 if (toDelete.length) {
-                    await reportDB.reports.bulkDelete(toDelete.map(entry => entry.id));
+                    await reportDB.reports.bulkDelete(toDelete);
                 }
             } catch (err) {
                 console.error("Unable to prune stored reports", err);
             }
         }
 
-        async function saveReportMetadata(file) {
-            if (!reportDB || !file) return;
+        async function populateReportDropdowns({ selectAId, selectBId } = {}) {
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (!selectA || !selectB) return [];
+            const data = await getStoredReports();
+            [
+                { element: selectA, override: selectAId },
+                { element: selectB, override: selectBId }
+            ].forEach(({ element, override }) => {
+                const previous = element.value;
+                const desired = override !== undefined ? (override == null ? "" : String(override)) : previous;
+                element.innerHTML = "<option value=\"\">Select a saved report…</option>";
+                data.forEach(item => {
+                    const opt = document.createElement("option");
+                    opt.value = String(item.id);
+                    opt.textContent = formatReportOption(item);
+                    opt.dataset.fileName = item.fileName || "";
+                    opt.dataset.date = item.date || "";
+                    opt.dataset.savedAt = item.savedAt || "";
+                    element.appendChild(opt);
+                });
+                if (desired) {
+                    element.value = desired;
+                    if (element.value !== desired) {
+                        element.selectedIndex = 0;
+                    }
+                } else {
+                    element.selectedIndex = 0;
+                }
+                const selectedOption = element.options[element.selectedIndex];
+                element.title = selectedOption ? selectedOption.textContent : "";
+            });
+            return data;
+        }
+
+        async function saveParsedReport(file, rows, target) {
+            if (!reportDB || !file) return null;
             try {
                 const now = new Date();
-                await reportDB.reports.add({
-                    filename: file.name,
-                    uploadedAt: now.getTime(),
-                    uploadedDate: now.toISOString(),
-                    fileTimestamp: file.lastModified || null
-                });
+                const hasLastModified = typeof file.lastModified === "number" && !Number.isNaN(file.lastModified);
+                const fileDate = hasLastModified ? new Date(file.lastModified) : now;
+                const events = Array.isArray(rows) ? rows.filter(r => r && r["Day of Event"]) : [];
+                const payload = {
+                    fileName: file.name,
+                    date: fileDate.toISOString(),
+                    savedAt: now.toISOString(),
+                    events: JSON.parse(JSON.stringify(events))
+                };
+                const id = await reportDB.reports.add(payload);
                 await pruneExcessReports();
-                await populateReportDropdowns();
+                await populateReportDropdowns(target === "A" ? { selectAId: id } : { selectBId: id });
+                return id;
             } catch (err) {
-                console.error("Unable to save report metadata", err);
+                console.error("Unable to save parsed report", err);
+                return null;
+            }
+        }
+
+        async function loadReportFromHistory(entryOrId, target) {
+            if (!reportDB) return false;
+            try {
+                let entry = entryOrId;
+                if (!entry || typeof entry !== "object") {
+                    const idNum = Number(entryOrId);
+                    if (!idNum) return false;
+                    entry = await reportDB.reports.get(idNum);
+                }
+                if (!entry || entry.events === undefined) {
+                    console.warn("Stored report is missing event data.");
+                    return false;
+                }
+                const events = Array.isArray(entry.events) ? entry.events : [];
+                const cloned = JSON.parse(JSON.stringify(events));
+                ingestRows(target, cloned);
+                return true;
+            } catch (err) {
+                console.error("Unable to load stored report", err);
+                return false;
+            }
+        }
+
+        async function initializeReportHistory() {
+            await pruneExcessReports();
+            const reports = await populateReportDropdowns({ selectBId: null });
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (selectB) {
+                selectB.value = "";
+                selectB.selectedIndex = 0;
+                const optionB = selectB.options[selectB.selectedIndex];
+                selectB.title = optionB ? optionB.textContent : "";
+            }
+            if (!selectA || !reports.length) {
+                if (selectA) {
+                    selectA.selectedIndex = 0;
+                    const optionA = selectA.options[selectA.selectedIndex];
+                    selectA.title = optionA ? optionA.textContent : "";
+                }
+                return;
+            }
+            const latest = reports[0];
+            const desired = String(latest.id);
+            selectA.value = desired;
+            if (selectA.value !== desired) {
+                selectA.selectedIndex = 0;
+            }
+            const option = selectA.options[selectA.selectedIndex];
+            selectA.title = option ? option.textContent : "";
+            const loaded = await loadReportFromHistory(latest, "A");
+            if (!loaded) {
+                selectA.value = "";
+                selectA.selectedIndex = 0;
+                const fallbackOption = selectA.options[selectA.selectedIndex];
+                selectA.title = fallbackOption ? fallbackOption.textContent : "";
             }
         }
 
@@ -2116,11 +2236,11 @@
         async function processPdfUpload(file, target) {
             if (!file) return;
             try {
-                await saveReportMetadata(file);
                 const rows = await loadPDF(file, target);
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
                 }
+                await saveParsedReport(file, rows, target);
             } catch (err) {
                 console.error(err);
                 alert(`Unable to parse ${file.name}: ${err?.message || err}`);
@@ -2290,7 +2410,7 @@
         }
 
         /* ========= EVENT HOOKS ========= */
-        function initUI() {
+        async function initUI() {
             document.getElementById("csvFileA").addEventListener("change", e => {
                 const f = e.target.files[0];
                 processPdfUpload(f, "A");
@@ -2300,15 +2420,44 @@
                 processPdfUpload(f, "B");
             });
 
-            [document.getElementById("reportHistoryA"), document.getElementById("reportHistoryB")].forEach(sel => {
-                if (!sel) return;
-                sel.addEventListener("change", () => {
-                    const option = sel.options[sel.selectedIndex];
-                    sel.title = option ? option.textContent : "";
-                });
-            });
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
 
-            populateReportDropdowns();
+            if (selectA) {
+                selectA.addEventListener("change", async () => {
+                    const option = selectA.options[selectA.selectedIndex];
+                    selectA.title = option ? option.textContent : "";
+                    const id = selectA.value;
+                    if (!id) return;
+                    const loaded = await loadReportFromHistory(id, "A");
+                    if (!loaded) {
+                        alert("Unable to load the selected report from history.");
+                        selectA.value = "";
+                        selectA.selectedIndex = 0;
+                        const resetOption = selectA.options[selectA.selectedIndex];
+                        selectA.title = resetOption ? resetOption.textContent : "";
+                    }
+                });
+            }
+
+            if (selectB) {
+                selectB.addEventListener("change", async () => {
+                    const option = selectB.options[selectB.selectedIndex];
+                    selectB.title = option ? option.textContent : "";
+                    const id = selectB.value;
+                    if (!id) return;
+                    const loaded = await loadReportFromHistory(id, "B");
+                    if (!loaded) {
+                        alert("Unable to load the selected report from history.");
+                        selectB.value = "";
+                        selectB.selectedIndex = 0;
+                        const resetOption = selectB.options[selectB.selectedIndex];
+                        selectB.title = resetOption ? resetOption.textContent : "";
+                    }
+                });
+            }
+
+            await initializeReportHistory();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {
@@ -2368,7 +2517,7 @@
         window.addEventListener("resize", () => redraw());
 
         /* ========= BOOT ========= */
-        initUI();
+        initUI().catch(err => console.error("Failed to initialize UI", err));
     </script>
 
 

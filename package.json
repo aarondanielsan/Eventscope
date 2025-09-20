@@ -1,0 +1,15 @@
+{
+  "name": "eventscope-proxy",
+  "version": "1.0.0",
+  "description": "Local proxy service for EventScope Lighthouse integration",
+  "type": "module",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
+  }
+}

@@ -1010,7 +1010,7 @@
 
         const AV_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
         const LIGHTHOUSE_LOGIN_URL = "https://lighthouse2.psav.com";
-        const LIGHTHOUSE_ACTIONS_ENDPOINT = "https://api-cus.psav.com/lighthouse-api/production/api/flowsheets/flowsheet/GetActions";
+        const LIGHTHOUSE_PROXY_ENDPOINT = "/lighthouse/getactions";
         const LIGHTHOUSE_ROOM_GUIDE_URL = "lighthouse-room-guide.json";
 
         const lighthouseState = {
@@ -1824,7 +1824,7 @@
                 const changedEntries = [];
                 const fetchTimestamp = new Date().toISOString();
                 for (const iso of dates) {
-                    const url = `${LIGHTHOUSE_ACTIONS_ENDPOINT}?asOf=${encodeURIComponent(iso)}`;
+                    const url = `${LIGHTHOUSE_PROXY_ENDPOINT}?date=${encodeURIComponent(iso)}`;
                     const res = await fetch(url, { credentials: "include" });
                     if (!res.ok) {
                         const text = await res.text().catch(() => "");

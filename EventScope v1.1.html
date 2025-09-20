@@ -16,6 +16,9 @@
         }
     </script>
 
+    <!-- Dexie.js for IndexedDB management -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -130,6 +133,36 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap
+        }
+
+        .upload-stack {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .upload-stack label {
+            margin-bottom: 2px;
+        }
+
+        .upload-stack input[type="file"],
+        .upload-stack .report-select {
+            width: min(280px, 100%);
+        }
+
+        .report-select {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font: inherit;
+            font-size: .85rem;
+        }
+
+        .report-select:focus {
+            outline: 2px solid var(--accent);
+            outline-offset: 1px;
         }
 
         /* tabs */
@@ -615,14 +648,20 @@
         <!-- GLOBAL uploads -->
         <div class="card" id="globalUploads">
             <div class="controls">
-                <div class="group">
+                <div class="group upload-stack">
                     <label for="csvFileA">Newest Event Report PDF</label>
                     <input type="file" id="csvFileA" accept=".pdf">
+                    <select id="reportHistoryA" class="report-select">
+                        <option value="">Select a saved report…</option>
+                    </select>
                 </div>
                 <div class="spacer"></div>
-                <div class="group">
+                <div class="group upload-stack">
                     <label for="csvFileB">Previous Event Report PDF</label>
                     <input type="file" id="csvFileB" accept=".pdf">
+                    <select id="reportHistoryB" class="report-select">
+                        <option value="">Select a saved report…</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -793,6 +832,93 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+
+        /* ========= REPORT HISTORY (IndexedDB) ========= */
+        const REPORT_HISTORY_LIMIT = 10;
+        const reportDB = window.Dexie ? new Dexie("eventscopeReports") : null;
+        if (reportDB) {
+            reportDB.version(1).stores({
+                reports: "++id, uploadedAt"
+            });
+        }
+
+        async function getStoredReports() {
+            if (!reportDB) return [];
+            try {
+                return await reportDB.reports.orderBy("uploadedAt").reverse().limit(REPORT_HISTORY_LIMIT).toArray();
+            } catch (err) {
+                console.error("Unable to read stored reports", err);
+                return [];
+            }
+        }
+
+        function formatReportOption(entry) {
+            const dt = new Date(entry.uploadedAt);
+            const dateStr = dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            const timeStr = dt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+            return `${dateStr} ${timeStr} – ${entry.filename}`;
+        }
+
+        async function populateReportDropdowns() {
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (!selectA || !selectB) return;
+            await pruneExcessReports();
+            const data = await getStoredReports();
+            [selectA, selectB].forEach(sel => {
+                const current = sel.value;
+                sel.innerHTML = "<option value=\"\">Select a saved report…</option>";
+                data.forEach(item => {
+                    const opt = document.createElement("option");
+                    opt.value = String(item.id);
+                    opt.textContent = formatReportOption(item);
+                    opt.dataset.filename = item.filename;
+                    opt.dataset.timestamp = String(item.uploadedAt);
+                    opt.dataset.date = item.uploadedDate || "";
+                    sel.appendChild(opt);
+                });
+                if (current) {
+                    sel.value = current;
+                    if (sel.value !== current) {
+                        sel.selectedIndex = 0;
+                    }
+                }
+                const selectedOption = sel.options[sel.selectedIndex];
+                sel.title = selectedOption ? selectedOption.textContent : "";
+            });
+        }
+
+        async function pruneExcessReports() {
+            if (!reportDB) return;
+            try {
+                const total = await reportDB.reports.count();
+                if (total <= REPORT_HISTORY_LIMIT) return;
+                const excess = await reportDB.reports.orderBy("uploadedAt").toArray();
+                const toDelete = excess.slice(0, Math.max(0, excess.length - REPORT_HISTORY_LIMIT));
+                if (toDelete.length) {
+                    await reportDB.reports.bulkDelete(toDelete.map(entry => entry.id));
+                }
+            } catch (err) {
+                console.error("Unable to prune stored reports", err);
+            }
+        }
+
+        async function saveReportMetadata(file) {
+            if (!reportDB || !file) return;
+            try {
+                const now = new Date();
+                await reportDB.reports.add({
+                    filename: file.name,
+                    uploadedAt: now.getTime(),
+                    uploadedDate: now.toISOString(),
+                    fileTimestamp: file.lastModified || null
+                });
+                await pruneExcessReports();
+                await populateReportDropdowns();
+            } catch (err) {
+                console.error("Unable to save report metadata", err);
+            }
+        }
 
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
@@ -1990,6 +2116,7 @@
         async function processPdfUpload(file, target) {
             if (!file) return;
             try {
+                await saveReportMetadata(file);
                 const rows = await loadPDF(file, target);
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
@@ -2172,6 +2299,16 @@
                 const f = e.target.files[0];
                 processPdfUpload(f, "B");
             });
+
+            [document.getElementById("reportHistoryA"), document.getElementById("reportHistoryB")].forEach(sel => {
+                if (!sel) return;
+                sel.addEventListener("change", () => {
+                    const option = sel.options[sel.selectedIndex];
+                    sel.title = option ? option.textContent : "";
+                });
+            });
+
+            populateReportDropdowns();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {

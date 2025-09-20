@@ -436,6 +436,13 @@
             background: transparent;
         }
 
+        .toolbar-action:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            pointer-events: none;
+            filter: none;
+        }
+
         .toolbar-action.active {
             background: #3cc47c;
             border-color: #3cc47c;
@@ -942,6 +949,8 @@
                             <button class="toolbar-action secondary" id="toggleShowRooms">Show All Rooms</button>
                             <button class="toolbar-action" id="toggleHighlightAV">Highlight AV</button>
                             <button class="toolbar-action" id="lighthouseSync">Lighthouse Sync</button>
+                            <button class="toolbar-action secondary" id="setLighthouseToken" title="Paste Lighthouse Authorization header">Set Lighthouse Token</button>
+                            <button class="toolbar-action secondary" id="clearLighthouseToken" title="Remove saved Lighthouse token">Clear Token</button>
                         </div>
                         <div class="toolbar-status">
                             <span id="searchStatus" style="opacity:.7;font-size:.9rem;"></span>
@@ -1007,11 +1016,27 @@
         let currentTimelineMode = "day";
         let lastSelectionMeta = null;
         let lighthouseStatusTimer = null;
+        let setTokenButtonRef = null;
+        let clearTokenButtonRef = null;
 
         const AV_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
         const LIGHTHOUSE_LOGIN_URL = "https://lighthouse2.psav.com";
-        const LIGHTHOUSE_PROXY_ENDPOINT = "/lighthouse/getactions";
+        const LIGHTHOUSE_PROXY_BASE = (() => {
+            try {
+                const { protocol, hostname, port } = window.location || {};
+                if (protocol && protocol.startsWith("http") && (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") && port === "3000") {
+                    return "";
+                }
+            } catch (err) {
+                // ignore environment resolution issues
+            }
+            return "http://localhost:3000";
+        })();
+        const LIGHTHOUSE_PROXY_ENDPOINT = `${LIGHTHOUSE_PROXY_BASE}/lighthouse/getactions`;
+        const LIGHTHOUSE_PROXY_SET_AUTH = `${LIGHTHOUSE_PROXY_BASE}/lighthouse/set-auth`;
+        const LIGHTHOUSE_PROXY_CLEAR_AUTH = `${LIGHTHOUSE_PROXY_BASE}/lighthouse/clear-auth`;
         const LIGHTHOUSE_ROOM_GUIDE_URL = "lighthouse-room-guide.json";
+        const LIGHTHOUSE_TOKEN_STORAGE_KEY = "eventscope.lighthouseAuthToken";
 
         const lighthouseState = {
             enabled: false,
@@ -1277,6 +1302,102 @@
                         statusEl.classList.remove("info", "success", "error");
                     }
                 }, 6000);
+            }
+        }
+
+        function getStoredLighthouseToken() {
+            try {
+                return (window.localStorage?.getItem(LIGHTHOUSE_TOKEN_STORAGE_KEY) || "").trim();
+            } catch (err) {
+                console.warn("Unable to read stored Lighthouse token", err);
+                return "";
+            }
+        }
+
+        function hasStoredLighthouseToken() {
+            return !!getStoredLighthouseToken();
+        }
+
+        function setStoredLighthouseToken(token) {
+            try {
+                if (token) {
+                    window.localStorage?.setItem(LIGHTHOUSE_TOKEN_STORAGE_KEY, token);
+                } else {
+                    window.localStorage?.removeItem(LIGHTHOUSE_TOKEN_STORAGE_KEY);
+                }
+            } catch (err) {
+                console.warn("Unable to persist Lighthouse token", err);
+            }
+        }
+
+        function normalizeLighthouseToken(raw) {
+            if (!raw) return "";
+            const trimmed = raw.trim();
+            if (!trimmed) return "";
+            let tokenValue = trimmed;
+            if (/^bearer\s+/i.test(trimmed)) {
+                tokenValue = trimmed.replace(/^bearer\s+/i, "").trim();
+            }
+            if (!tokenValue) {
+                throw new Error("Token must include a value after 'Bearer '.");
+            }
+            return `Bearer ${tokenValue}`;
+        }
+
+        async function syncTokenCookieWithProxy(token) {
+            const endpoint = token ? LIGHTHOUSE_PROXY_SET_AUTH : LIGHTHOUSE_PROXY_CLEAR_AUTH;
+            const options = {
+                method: "POST",
+                credentials: "include"
+            };
+            if (token) {
+                options.headers = { "Content-Type": "application/json" };
+                options.body = JSON.stringify({ token });
+            }
+            const res = await fetch(endpoint, options).catch(err => {
+                throw new Error(err?.message || "Network error while updating Lighthouse token.");
+            });
+            if (!res.ok) {
+                const text = await res.text().catch(() => "");
+                throw new Error(text || `Proxy responded with ${res.status}`);
+            }
+            try {
+                return await res.json();
+            } catch (err) {
+                return {};
+            }
+        }
+
+        function buildLighthouseAuthHeaders() {
+            const token = getStoredLighthouseToken();
+            return token ? { "x-lh-auth": token } : {};
+        }
+
+        async function applyStoredLighthouseToken() {
+            updateLighthouseTokenButtonsState();
+            const token = getStoredLighthouseToken();
+            if (!token) {
+                try {
+                    await syncTokenCookieWithProxy("");
+                } catch (err) {
+                    console.warn("Unable to clear Lighthouse proxy auth cookie", err);
+                }
+                return;
+            }
+            try {
+                await syncTokenCookieWithProxy(token);
+            } catch (err) {
+                console.warn("Unable to sync Lighthouse token to proxy", err);
+            }
+        }
+
+        function updateLighthouseTokenButtonsState() {
+            const hasToken = hasStoredLighthouseToken();
+            if (setTokenButtonRef) {
+                setTokenButtonRef.textContent = hasToken ? "Update Lighthouse Token" : "Set Lighthouse Token";
+            }
+            if (clearTokenButtonRef) {
+                clearTokenButtonRef.disabled = !hasToken;
             }
         }
 
@@ -1815,50 +1936,82 @@
             return dates;
         }
 
-        async function fetchLighthouseActionsForDates(dates) {
+        async function fetchLighthouseActionsForDates(dates, options = {}) {
             if (!dates || !dates.length) return false;
+            const { suppressStatus = false } = options || {};
             lighthouseState.fetching = true;
-            updateLighthouseStatus("Fetching Lighthouse actions…", "info", true);
+            if (!suppressStatus) {
+                updateLighthouseStatus("Fetching Lighthouse actions…", "info", true);
+            }
             try {
-                const dataByDate = new Map();
-                const changedEntries = [];
                 const fetchTimestamp = new Date().toISOString();
+                const results = [];
                 for (const iso of dates) {
                     const url = `${LIGHTHOUSE_PROXY_ENDPOINT}?date=${encodeURIComponent(iso)}`;
-                    const res = await fetch(url, { credentials: "include" });
-                    if (!res.ok) {
-                        const text = await res.text().catch(() => "");
-                        throw new Error(text || `Lighthouse returned ${res.status}`);
+                    console.log(`Requesting Lighthouse actions for ${iso}`);
+                    const response = await fetch(url, {
+                        method: "GET",
+                        credentials: "include",
+                        headers: {
+                            Accept: "application/json, text/plain, */*",
+                            ...buildLighthouseAuthHeaders()
+                        }
+                    });
+                    const rawText = await response.text();
+                    let payload = null;
+                    if (rawText) {
+                        try {
+                            payload = JSON.parse(rawText);
+                        } catch (err) {
+                            payload = rawText;
+                        }
                     }
-                    const json = await res.json();
-                    dataByDate.set(iso, normalizeLighthouseActions(json));
+                    if (!response.ok) {
+                        const baseMessage = payload && payload.error ? payload.error : `Lighthouse returned ${response.status}`;
+                        const detail = payload && payload.details ? payload.details : (typeof payload === "string" ? payload.slice(0, 400) : "");
+                        throw new Error(detail ? `${baseMessage}: ${detail}` : baseMessage);
+                    }
+                    if (!payload || typeof payload !== "object") {
+                        throw new Error("Unexpected response from Lighthouse (missing JSON payload).");
+                    }
+                    const normalized = normalizeLighthouseActions(payload);
+                    results.push({ iso, normalized, savedAt: fetchTimestamp });
                 }
-                let changed = false;
-                for (const [iso, list] of dataByDate.entries()) {
+
+                const changedEntries = [];
+                results.forEach(({ iso, normalized, savedAt }) => {
                     const existing = lighthouseState.rawByDate.get(iso);
                     const serializedExisting = existing ? JSON.stringify(existing) : "";
-                    const serializedNew = JSON.stringify(list);
+                    const serializedNew = JSON.stringify(normalized);
                     if (serializedExisting !== serializedNew) {
-                        lighthouseState.rawByDate.set(iso, list);
-                        changed = true;
-                        changedEntries.push({ iso, payload: list, savedAt: fetchTimestamp });
+                        lighthouseState.rawByDate.set(iso, normalized);
+                        changedEntries.push({ iso, payload: normalized, savedAt });
                     }
+                });
+
+                if (changedEntries.length) {
+                    await persistLighthouseCacheEntries(changedEntries);
                 }
-                if (changed) {
-                    recomputeLighthouseState();
-                    if (changedEntries.length) {
-                        await persistLighthouseCacheEntries(changedEntries);
-                    }
-                }
+
+                recomputeLighthouseState();
                 lighthouseState.lastSync = new Date();
-                lighthouseState.enabled = true;
+                lighthouseState.enabled = lighthouseState.rawByDate.size > 0;
                 lighthouseState.autoFetch = true;
-                updateLighthouseStatus("Lighthouse data synced.", "success");
-                return changed;
+
+                if (!suppressStatus) {
+                    updateLighthouseStatus(
+                        changedEntries.length ? "Lighthouse data synced." : "Lighthouse data synced (no changes).",
+                        "success"
+                    );
+                }
+
+                redraw();
+                return changedEntries.length > 0;
             } catch (err) {
+                const message = err?.message || String(err);
                 console.error("Lighthouse sync failed", err);
-                updateLighthouseStatus(`Sync failed: ${err?.message || err}`, "error", true);
-                return false;
+                updateLighthouseStatus(`Sync failed: ${message}`, "error", true);
+                throw err;
             } finally {
                 lighthouseState.fetching = false;
             }
@@ -1869,20 +2022,22 @@
             const desired = getCurrentViewDates();
             const missing = desired.filter(iso => !lighthouseState.byDate.has(iso));
             if (!missing.length) return;
-            fetchLighthouseActionsForDates(missing).then(changed => {
-                if (changed) {
-                    redraw();
-                }
-            }).catch(err => console.error("Lighthouse auto-fetch failed", err));
+            fetchLighthouseActionsForDates(missing, { suppressStatus: true }).catch(err => {
+                console.error("Lighthouse auto-fetch failed", err);
+            });
         }
 
-        function handleLighthouseSyncClick() {
+        async function handleLighthouseSyncClick() {
             if (lighthouseState.fetching) return;
-            window.open(LIGHTHOUSE_LOGIN_URL, "lighthouseLogin", "noopener,width=1024,height=768");
-            updateLighthouseStatus("Complete Lighthouse login in the popup, then stay here while we sync…", "info", true);
-            fetchLighthouseActionsForDates(getCurrentViewDates()).then(changed => {
-                if (changed) redraw();
-            });
+            if (!hasStoredLighthouseToken()) {
+                window.open(LIGHTHOUSE_LOGIN_URL, "lighthouseLogin", "noopener,width=1024,height=768");
+                updateLighthouseStatus("Complete Lighthouse login in the popup or paste a token, then we'll sync…", "info", true);
+            }
+            try {
+                await fetchLighthouseActionsForDates(getCurrentViewDates());
+            } catch (err) {
+                // status already updated; noop
+            }
         }
 
         function findLighthouseMatchesForEvent(ev) {
@@ -3428,6 +3583,10 @@
             const selectB = document.getElementById("reportHistoryB");
             const toggleAVBtn = document.getElementById("toggleHighlightAV");
             const lighthouseSyncBtn = document.getElementById("lighthouseSync");
+            setTokenButtonRef = document.getElementById("setLighthouseToken");
+            clearTokenButtonRef = document.getElementById("clearLighthouseToken");
+
+            updateLighthouseTokenButtonsState();
 
             if (selectA) {
                 selectA.addEventListener("change", async () => {
@@ -3484,7 +3643,47 @@
                 });
             }
 
+            if (setTokenButtonRef) {
+                setTokenButtonRef.addEventListener("click", async () => {
+                    const existing = getStoredLighthouseToken();
+                    const input = prompt("Paste Lighthouse Authorization header (starts with 'Bearer '):", existing);
+                    if (input === null) return;
+                    const trimmed = (input || "").trim();
+                    try {
+                        if (!trimmed) {
+                            setStoredLighthouseToken("");
+                            await syncTokenCookieWithProxy("");
+                            updateLighthouseStatus("Lighthouse token cleared.", "success");
+                            return;
+                        }
+                        const normalized = normalizeLighthouseToken(trimmed);
+                        setStoredLighthouseToken(normalized);
+                        await syncTokenCookieWithProxy(normalized);
+                        updateLighthouseStatus("Lighthouse token saved.", "success");
+                    } catch (err) {
+                        updateLighthouseStatus(`Token save failed: ${err?.message || err}`, "error", true);
+                    } finally {
+                        updateLighthouseTokenButtonsState();
+                    }
+                });
+            }
+
+            if (clearTokenButtonRef) {
+                clearTokenButtonRef.addEventListener("click", async () => {
+                    try {
+                        setStoredLighthouseToken("");
+                        await syncTokenCookieWithProxy("");
+                        updateLighthouseStatus("Lighthouse token cleared.", "success");
+                    } catch (err) {
+                        updateLighthouseStatus(`Token clear failed: ${err?.message || err}`, "error", true);
+                    } finally {
+                        updateLighthouseTokenButtonsState();
+                    }
+                });
+            }
+
             await initializeReportHistory();
+            await applyStoredLighthouseToken();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {

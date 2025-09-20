@@ -794,6 +794,34 @@
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
 
+        const LIGHTHOUSE_PROXY_ENDPOINT = (() => {
+            const PATH = "/lighthouse/getactions";
+            const DEFAULT_ORIGIN = "http://localhost:3000";
+
+            function trimTrailingSlash(value) {
+                return String(value).replace(/\/+$/, "");
+            }
+
+            if (typeof window !== "undefined") {
+                const override = window.LIGHTHOUSE_PROXY_ORIGIN;
+                if (override && String(override).trim()) {
+                    const normalized = trimTrailingSlash(String(override).trim());
+                    if (normalized.endsWith(PATH)) return normalized;
+                    if (normalized.endsWith("/lighthouse")) return `${normalized}/getactions`;
+                    return `${normalized}${PATH}`;
+                }
+
+                if (window.location) {
+                    const origin = (window.location.origin || "").trim();
+                    if (origin && origin !== "null" && origin !== "file://") {
+                        return `${trimTrailingSlash(origin)}${PATH}`;
+                    }
+                }
+            }
+
+            return `${DEFAULT_ORIGIN}${PATH}`;
+        })();
+
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
             "Meeting", "Breakout", "Breakfast", "Lunch", "Dinner", "Reception",
@@ -2101,6 +2129,44 @@
         function syncDateUI(d) {
             renderCalendar(d);
             syncDateLabel();
+        }
+
+        /* ========= LIGHTHOUSE PROXY ========= */
+        async function fetchLighthouseActionsForDates(dates, extraParams = {}) {
+            const list = Array.isArray(dates) ? dates : (dates ? [dates] : []);
+            const normalizedDates = list
+                .map(d => {
+                    if (!d) return "";
+                    if (d instanceof Date) return toLocalISODate(d);
+                    return String(d).trim();
+                })
+                .filter(Boolean);
+
+            if (!normalizedDates.length) return [];
+
+            const url = new URL(LIGHTHOUSE_PROXY_ENDPOINT);
+            normalizedDates.forEach(date => url.searchParams.append("date", date));
+
+            Object.entries(extraParams || {}).forEach(([key, value]) => {
+                if (value === undefined || value === null) return;
+                if (Array.isArray(value)) {
+                    value.filter(Boolean).forEach(v => url.searchParams.append(key, v));
+                } else {
+                    url.searchParams.append(key, value);
+                }
+            });
+
+            const response = await fetch(url.toString(), {
+                headers: {
+                    "Accept": "application/json"
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Lighthouse proxy request failed: ${response.status}`);
+            }
+
+            return response.json();
         }
 
         /* ========= SEARCH UI (autosuggest) ========= */

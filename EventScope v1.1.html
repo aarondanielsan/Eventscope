@@ -16,6 +16,9 @@
         }
     </script>
 
+    <!-- Dexie.js for IndexedDB management -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -130,6 +133,36 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap
+        }
+
+        .upload-stack {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .upload-stack label {
+            margin-bottom: 2px;
+        }
+
+        .upload-stack input[type="file"],
+        .upload-stack .report-select {
+            width: min(280px, 100%);
+        }
+
+        .report-select {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font: inherit;
+            font-size: .85rem;
+        }
+
+        .report-select:focus {
+            outline: 2px solid var(--accent);
+            outline-offset: 1px;
         }
 
         /* tabs */
@@ -358,6 +391,84 @@
             min-width: 280px;
         }
 
+        .toolbar-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            width: 100%;
+        }
+
+        .toolbar-actions .search-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            flex: 1;
+            min-width: 260px;
+        }
+
+        .toolbar-actions .search-box {
+            flex: 1;
+        }
+
+        .toolbar-actions .search-box input {
+            width: 100%;
+        }
+
+        .toolbar-action {
+            background: #394c7a;
+            color: #fff;
+            border: 1px solid #394c7a;
+            border-radius: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font: inherit;
+            font-size: .85rem;
+            transition: .18s ease;
+        }
+
+        .toolbar-action:hover {
+            filter: brightness(1.08);
+        }
+
+        .toolbar-action.secondary {
+            background: transparent;
+        }
+
+        .toolbar-action.active {
+            background: #3cc47c;
+            border-color: #3cc47c;
+            color: #0f1f3a;
+        }
+
+        .toolbar-status {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: .85rem;
+        }
+
+        #searchStatus {
+            display: block;
+        }
+
+        #lighthouseStatus {
+            opacity: .85;
+        }
+
+        #lighthouseStatus.info {
+            color: #60a5fa;
+        }
+
+        #lighthouseStatus.success {
+            color: #34d399;
+        }
+
+        #lighthouseStatus.error {
+            color: #f87171;
+        }
+
         .suggestions {
             position: absolute;
             top: 110%;
@@ -517,6 +628,82 @@
             background: #2a3c6e;
         }
 
+        #avPanel {
+            margin-top: 16px;
+            background: #1c2a55;
+            border-top: 3px solid #394c7a;
+            border-radius: 0 0 10px 10px;
+            padding: 16px;
+            display: none;
+        }
+
+        #avPanelHeader {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        #avPanelContent {
+            display: grid;
+            gap: 12px;
+        }
+
+        .av-section h4 {
+            margin: 0 0 6px 0;
+            font-size: 1rem;
+        }
+
+        .av-list {
+            margin: 0;
+            padding-left: 18px;
+        }
+
+        .av-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .85rem;
+        }
+
+        .av-table th,
+        .av-table td {
+            text-align: left;
+            padding: 6px 8px;
+        }
+
+        .av-table tbody tr:nth-child(even) {
+            background: rgba(57, 76, 122, 0.3);
+        }
+
+        .av-job {
+            padding: 12px;
+            border: 1px solid #394c7a;
+            border-radius: 10px;
+            background: rgba(57, 76, 122, 0.25);
+        }
+
+        .av-job + .av-job {
+            margin-top: 10px;
+        }
+
+        .av-job-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .av-meta {
+            font-size: .85rem;
+            opacity: .85;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .av-sub strong {
+            display: block;
+            font-size: .9rem;
+            margin-bottom: 4px;
+        }
+
         .event-title {
             font-weight: 500;
             margin-bottom: 4px;
@@ -615,14 +802,20 @@
         <!-- GLOBAL uploads -->
         <div class="card" id="globalUploads">
             <div class="controls">
-                <div class="group">
+                <div class="group upload-stack">
                     <label for="csvFileA">Newest Event Report PDF</label>
                     <input type="file" id="csvFileA" accept=".pdf">
+                    <select id="reportHistoryA" class="report-select">
+                        <option value="">Select a saved report…</option>
+                    </select>
                 </div>
                 <div class="spacer"></div>
-                <div class="group">
+                <div class="group upload-stack">
                     <label for="csvFileB">Previous Event Report PDF</label>
                     <input type="file" id="csvFileB" accept=".pdf">
+                    <select id="reportHistoryB" class="report-select">
+                        <option value="">Select a saved report…</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -732,18 +925,28 @@
                             <button class="nav-btn" id="prevDay">‹</button>
                             <div class="date-label" id="dateLabel">Thu, Sep 18, 2025</div>
                             <button class="nav-btn" id="nextDay">›</button>
-                        </div><button class="btn" id="jumpToday">Today</button>
+                        </div>
+                        <button class="btn" id="jumpToday">Today</button>
                         <div class="segmented" id="viewMode">
                             <button data-mode="day" class="active">Daily</button>
                             <button data-mode="week" class="">Weekly</button>
                         </div>
-                        <div class="search-box">
-                            <input type="text" id="timelineSearch" placeholder="Search company or event…">
-                            <div class="suggestions" id="searchSuggest" style="display: none;"></div>
+                        <div class="toolbar-actions">
+                            <div class="search-group">
+                                <div class="search-box">
+                                    <input type="text" id="timelineSearch" placeholder="Search company or event…">
+                                    <div class="suggestions" id="searchSuggest" style="display: none;"></div>
+                                </div>
+                                <button class="toolbar-action secondary" id="clearSearch">Clear</button>
+                            </div>
+                            <button class="toolbar-action secondary" id="toggleShowRooms">Show All Rooms</button>
+                            <button class="toolbar-action" id="toggleHighlightAV">Highlight AV</button>
+                            <button class="toolbar-action" id="lighthouseSync">Lighthouse Sync</button>
                         </div>
-                        <button class="secondary" id="clearSearch">Clear</button>
-                        <span id="searchStatus" style="opacity:.7;font-size:.9rem;"></span>
-                        <button class="btn secondary" id="toggleShowRooms">Show All Rooms</button>
+                        <div class="toolbar-status">
+                            <span id="searchStatus" style="opacity:.7;font-size:.9rem;"></span>
+                            <span id="lighthouseStatus" class="info"></span>
+                        </div>
                     </div>
                 </div>
 
@@ -752,6 +955,10 @@
                     <div id="timeline">
                         <p style="color:#c00; margin:12px;">No events found for this date.</p>
                     </div>
+                </div>
+                <div id="avPanel">
+                    <div id="avPanelHeader"></div>
+                    <div id="avPanelContent"></div>
                 </div>
             </div>
         </div>
@@ -793,6 +1000,972 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+        let highlightAV = false;
+        let currentTimelineChart = null;
+        let currentTimelineData = null;
+        let currentTimelineMetadata = [];
+        let currentTimelineMode = "day";
+        let lastSelectionMeta = null;
+        let lighthouseStatusTimer = null;
+
+        const AV_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
+        const LIGHTHOUSE_LOGIN_URL = "https://lighthouse2.psav.com";
+        const LIGHTHOUSE_ACTIONS_ENDPOINT = "https://api-cus.psav.com/lighthouse-api/production/api/flowsheets/flowsheet/GetActions";
+        const LIGHTHOUSE_ROOM_GUIDE_URL = "lighthouse-room-guide.json";
+
+        const lighthouseState = {
+            enabled: false,
+            fetching: false,
+            rawByDate: new Map(),
+            byDate: new Map(),
+            jobsById: new Map(),
+            roomGuide: new Map(),
+            lastSync: null,
+            autoFetch: false
+        };
+
+        /* ========= REPORT HISTORY (IndexedDB) ========= */
+        const REPORT_HISTORY_LIMIT = 10;
+        const reportDB = window.Dexie ? new Dexie("eventscopeReports") : null;
+        const lighthouseCacheDB = window.Dexie ? new Dexie("eventscopeLighthouse") : null;
+        if (reportDB) {
+            reportDB.version(1).stores({
+                reports: "++id, uploadedAt"
+            });
+            reportDB.version(2).stores({
+                reports: "++id, date, savedAt"
+            }).upgrade(async tx => {
+                await tx.table("reports").toCollection().modify(entry => {
+                    const fallbackRaw = entry.fileTimestamp ?? entry.uploadedAt ?? Date.now();
+                    const fallbackNumber = Number(fallbackRaw);
+                    const fallbackDate = Number.isFinite(fallbackNumber) ? new Date(fallbackNumber) : new Date();
+                    const savedValue = entry.uploadedDate ?? (entry.uploadedAt ? new Date(Number(entry.uploadedAt)).toISOString() : new Date().toISOString());
+                    entry.fileName = entry.fileName || entry.filename || "Report";
+                    entry.date = entry.date || fallbackDate.toISOString();
+                    entry.savedAt = entry.savedAt || savedValue;
+                    if (entry.events === undefined && entry.rows !== undefined) {
+                        entry.events = entry.rows;
+                    }
+                    delete entry.filename;
+                    delete entry.uploadedAt;
+                    delete entry.uploadedDate;
+                    delete entry.fileTimestamp;
+                    delete entry.rows;
+                });
+            });
+        }
+
+        if (lighthouseCacheDB) {
+            lighthouseCacheDB.version(1).stores({
+                actions: "iso, savedAt"
+            });
+        }
+
+        function entryDateValue(entry) {
+            if (!entry) return 0;
+            const candidate = entry.date ?? entry.savedAt;
+            if (candidate !== undefined && candidate !== null) {
+                const parsed = typeof candidate === "number" ? candidate : Date.parse(candidate);
+                if (!Number.isNaN(parsed)) return parsed;
+            }
+            const fallback = entry.fileTimestamp ?? entry.uploadedAt ?? entry.lastModified;
+            if (fallback !== undefined && fallback !== null) {
+                const numeric = typeof fallback === "number" ? fallback : Number(fallback);
+                if (Number.isFinite(numeric)) return numeric;
+            }
+            return 0;
+        }
+
+        function formatReportOption(entry) {
+            const dateValue = entryDateValue(entry);
+            const dt = dateValue ? new Date(dateValue) : null;
+            const dateStr = dt ? dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Unknown date";
+            const name = entry.fileName || entry.filename || "Report";
+            return `${dateStr} – ${name}`;
+        }
+
+        async function getStoredReports() {
+            if (!reportDB) return [];
+            try {
+                const all = await reportDB.reports.toArray();
+                const usable = all.filter(entry => entry && entry.events !== undefined);
+                usable.sort((a, b) => {
+                    const diff = entryDateValue(b) - entryDateValue(a);
+                    if (diff !== 0) return diff;
+                    return (b.id || 0) - (a.id || 0);
+                });
+                return usable.slice(0, REPORT_HISTORY_LIMIT);
+            } catch (err) {
+                console.error("Unable to read stored reports", err);
+                return [];
+            }
+        }
+
+        async function pruneExcessReports() {
+            if (!reportDB) return;
+            try {
+                const all = await reportDB.reports.toArray();
+                if (all.length <= REPORT_HISTORY_LIMIT) return;
+                all.sort((a, b) => {
+                    const diff = entryDateValue(b) - entryDateValue(a);
+                    if (diff !== 0) return diff;
+                    return (b.id || 0) - (a.id || 0);
+                });
+                const keep = new Set(all.slice(0, REPORT_HISTORY_LIMIT).map(entry => entry.id));
+                const toDelete = all.filter(entry => !keep.has(entry.id)).map(entry => entry.id);
+                if (toDelete.length) {
+                    await reportDB.reports.bulkDelete(toDelete);
+                }
+            } catch (err) {
+                console.error("Unable to prune stored reports", err);
+            }
+        }
+
+        async function populateReportDropdowns({ selectAId, selectBId } = {}) {
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (!selectA || !selectB) return [];
+            const data = await getStoredReports();
+            [
+                { element: selectA, override: selectAId },
+                { element: selectB, override: selectBId }
+            ].forEach(({ element, override }) => {
+                const previous = element.value;
+                const desired = override !== undefined ? (override == null ? "" : String(override)) : previous;
+                element.innerHTML = "<option value=\"\">Select a saved report…</option>";
+                data.forEach(item => {
+                    const opt = document.createElement("option");
+                    opt.value = String(item.id);
+                    opt.textContent = formatReportOption(item);
+                    opt.dataset.fileName = item.fileName || "";
+                    opt.dataset.date = item.date || "";
+                    opt.dataset.savedAt = item.savedAt || "";
+                    element.appendChild(opt);
+                });
+                if (desired) {
+                    element.value = desired;
+                    if (element.value !== desired) {
+                        element.selectedIndex = 0;
+                    }
+                } else {
+                    element.selectedIndex = 0;
+                }
+                const selectedOption = element.options[element.selectedIndex];
+                element.title = selectedOption ? selectedOption.textContent : "";
+            });
+            return data;
+        }
+
+        async function saveParsedReport(file, rows, target) {
+            if (!reportDB || !file) return null;
+            try {
+                const now = new Date();
+                const hasLastModified = typeof file.lastModified === "number" && !Number.isNaN(file.lastModified);
+                const fileDate = hasLastModified ? new Date(file.lastModified) : now;
+                const fileDateIso = fileDate.toISOString();
+                const events = Array.isArray(rows) ? rows.filter(r => r && r["Day of Event"]) : [];
+                const clonedEvents = JSON.parse(JSON.stringify(events));
+                const existing = await reportDB.reports
+                    .where("date")
+                    .equals(fileDateIso)
+                    .filter(entry => (entry?.fileName || "") === file.name)
+                    .first();
+                const selectionTarget = target === "A" ? "selectAId" : "selectBId";
+                if (existing?.id) {
+                    await reportDB.reports.update(existing.id, {
+                        events: clonedEvents,
+                        savedAt: now.toISOString()
+                    });
+                    await pruneExcessReports();
+                    await populateReportDropdowns({ [selectionTarget]: existing.id });
+                    return existing.id;
+                }
+                const payload = {
+                    fileName: file.name,
+                    date: fileDateIso,
+                    savedAt: now.toISOString(),
+                    events: clonedEvents
+                };
+                const id = await reportDB.reports.add(payload);
+                await pruneExcessReports();
+                await populateReportDropdowns({ [selectionTarget]: id });
+                return id;
+            } catch (err) {
+                console.error("Unable to save parsed report", err);
+                return null;
+            }
+        }
+
+        async function loadReportFromHistory(entryOrId, target) {
+            if (!reportDB) return false;
+            try {
+                let entry = entryOrId;
+                if (!entry || typeof entry !== "object") {
+                    const idNum = Number(entryOrId);
+                    if (!idNum) return false;
+                    entry = await reportDB.reports.get(idNum);
+                }
+                if (!entry || entry.events === undefined) {
+                    console.warn("Stored report is missing event data.");
+                    return false;
+                }
+                const events = Array.isArray(entry.events) ? entry.events : [];
+                const cloned = JSON.parse(JSON.stringify(events));
+                ingestRows(target, cloned);
+                return true;
+            } catch (err) {
+                console.error("Unable to load stored report", err);
+                return false;
+            }
+        }
+
+        async function initializeReportHistory() {
+            await pruneExcessReports();
+            const inputA = document.getElementById("csvFileA");
+            const inputB = document.getElementById("csvFileB");
+            if (inputA) inputA.value = "";
+            if (inputB) inputB.value = "";
+            const reports = await populateReportDropdowns({ selectBId: null });
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            if (selectB) {
+                selectB.value = "";
+                selectB.selectedIndex = 0;
+                const optionB = selectB.options[selectB.selectedIndex];
+                selectB.title = optionB ? optionB.textContent : "";
+            }
+            if (!selectA || !reports.length) {
+                if (selectA) {
+                    selectA.selectedIndex = 0;
+                    const optionA = selectA.options[selectA.selectedIndex];
+                    selectA.title = optionA ? optionA.textContent : "";
+                }
+                return;
+            }
+            const latest = reports[0];
+            const desired = String(latest.id);
+            selectA.value = desired;
+            if (selectA.value !== desired) {
+                selectA.selectedIndex = 0;
+            }
+            const option = selectA.options[selectA.selectedIndex];
+            selectA.title = option ? option.textContent : "";
+            const loaded = await loadReportFromHistory(latest, "A");
+            if (!loaded) {
+                selectA.value = "";
+                selectA.selectedIndex = 0;
+                const fallbackOption = selectA.options[selectA.selectedIndex];
+                selectA.title = fallbackOption ? fallbackOption.textContent : "";
+            }
+        }
+
+        /* ========= LIGHTHOUSE INTEGRATION ========= */
+        function updateLighthouseStatus(message = "", variant = "info", persist = false) {
+            const statusEl = document.getElementById("lighthouseStatus");
+            if (!statusEl) return;
+            statusEl.textContent = message || "";
+            statusEl.classList.remove("info", "success", "error");
+            if (message) statusEl.classList.add(variant || "info");
+            if (lighthouseStatusTimer) {
+                clearTimeout(lighthouseStatusTimer);
+                lighthouseStatusTimer = null;
+            }
+            if (message && !persist) {
+                lighthouseStatusTimer = setTimeout(() => {
+                    if (statusEl.textContent === message) {
+                        statusEl.textContent = "";
+                        statusEl.classList.remove("info", "success", "error");
+                    }
+                }, 6000);
+            }
+        }
+
+        function cloneForStorage(value) {
+            if (typeof structuredClone === "function") {
+                try {
+                    return structuredClone(value);
+                } catch (err) {
+                    // structuredClone unavailable for the payload; fall through to JSON method
+                }
+            }
+            try {
+                return JSON.parse(JSON.stringify(value));
+            } catch (err) {
+                return value;
+            }
+        }
+
+        async function persistLighthouseCacheEntries(entries) {
+            if (!lighthouseCacheDB || !Array.isArray(entries) || !entries.length) return;
+            const timestamp = new Date().toISOString();
+            try {
+                await lighthouseCacheDB.table("actions").bulkPut(entries.map(entry => ({
+                    iso: entry.iso,
+                    savedAt: entry.savedAt || timestamp,
+                    payload: cloneForStorage(entry.payload)
+                })));
+            } catch (err) {
+                console.warn("Failed to persist Lighthouse cache", err);
+            }
+        }
+
+        async function loadLighthouseCache() {
+            if (!lighthouseCacheDB) return;
+            try {
+                const cached = await lighthouseCacheDB.table("actions").toArray();
+                if (!cached.length) return;
+                cached.forEach(entry => {
+                    if (!entry || !entry.iso) return;
+                    let payload = [];
+                    if (Array.isArray(entry.payload)) {
+                        payload = entry.payload;
+                    } else if (typeof entry.payload === "string") {
+                        try {
+                            const parsed = JSON.parse(entry.payload);
+                            if (Array.isArray(parsed)) payload = parsed;
+                            else return;
+                        } catch (err) {
+                            return;
+                        }
+                    } else if (entry.payload && typeof entry.payload === "object") {
+                        payload = Array.isArray(entry.payload.value) ? entry.payload.value : Array.isArray(entry.payload.data) ? entry.payload.data : [];
+                    }
+                    if (!Array.isArray(payload)) return;
+                    lighthouseState.rawByDate.set(entry.iso, payload);
+                    if (entry.savedAt) {
+                        const saved = Date.parse(entry.savedAt);
+                        if (!Number.isNaN(saved)) {
+                            if (!lighthouseState.lastSync || saved > lighthouseState.lastSync.getTime()) {
+                                lighthouseState.lastSync = new Date(saved);
+                            }
+                        }
+                    }
+                });
+                if (lighthouseState.rawByDate.size) {
+                    recomputeLighthouseState();
+                    lighthouseState.enabled = true;
+                    lighthouseState.autoFetch = false;
+                }
+            } catch (err) {
+                console.warn("Failed to load Lighthouse cache", err);
+            }
+        }
+
+        async function loadLighthouseRoomGuide() {
+            try {
+                if (window.LIGHTHOUSE_ROOM_GUIDE && typeof window.LIGHTHOUSE_ROOM_GUIDE === "object") {
+                    Object.entries(window.LIGHTHOUSE_ROOM_GUIDE).forEach(([guid, name]) => {
+                        if (guid) lighthouseState.roomGuide.set(String(guid).toLowerCase(), name);
+                    });
+                    return;
+                }
+                const res = await fetch(LIGHTHOUSE_ROOM_GUIDE_URL, { credentials: "include" }).catch(() => null);
+                if (!res || !res.ok) return;
+                const data = await res.json();
+                if (data && typeof data === "object") {
+                    Object.entries(data).forEach(([guid, name]) => {
+                        if (guid) lighthouseState.roomGuide.set(String(guid).toLowerCase(), name);
+                    });
+                }
+            } catch (err) {
+                console.warn("Unable to load Lighthouse room guide", err);
+            }
+        }
+
+        function normalizeSimple(value) {
+            return (value || "").toString().trim().toLowerCase().replace(/\s+/g, " ");
+        }
+
+        function deepGet(source, path) {
+            return path.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : null), source);
+        }
+
+        function pickField(source, paths) {
+            for (const path of paths) {
+                const value = deepGet(source, path);
+                if (value !== undefined && value !== null && value !== "") {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        function parseLighthouseDate(value) {
+            if (!value && value !== 0) return null;
+            if (value instanceof Date) return value;
+            if (typeof value === "number") {
+                const date = new Date(value);
+                return isNaN(date) ? null : date;
+            }
+            const str = String(value).trim();
+            const msMatch = str.match(/\/Date\((\d+)\)\//);
+            if (msMatch) {
+                const date = new Date(Number(msMatch[1]));
+                return isNaN(date) ? null : date;
+            }
+            const parsed = Date.parse(str);
+            if (!Number.isNaN(parsed)) return new Date(parsed);
+            return null;
+        }
+
+        function parseQuantity(value) {
+            if (value === undefined || value === null || value === "") return 0;
+            if (typeof value === "number") return value;
+            const numeric = Number(String(value).replace(/[^0-9.-]/g, ""));
+            return Number.isFinite(numeric) ? numeric : 0;
+        }
+
+        function getRoomNameFromGuide(guid, fallback) {
+            if (!guid) return fallback || "";
+            const key = String(guid).toLowerCase();
+            if (lighthouseState.roomGuide.has(key)) {
+                return lighthouseState.roomGuide.get(key);
+            }
+            return fallback || "";
+        }
+
+        function normalizeLighthouseRoom(roomGuid, rawName) {
+            const guided = getRoomNameFromGuide(roomGuid, rawName);
+            const name = guided || rawName || "";
+            const rooms = normalizeRooms(name);
+            const matches = new Set();
+            rooms.forEach(room => {
+                matches.add(room);
+                const base = PARENT_MAP[room];
+                if (base) matches.add(base);
+            });
+            return {
+                displayName: name || (rooms[0] || ""),
+                matches
+            };
+        }
+
+        function ensureJobMaps(job) {
+            if (!job._contactKeys) job._contactKeys = new Set();
+            if (!job._equipmentMap) job._equipmentMap = new Map();
+            if (!job._laborKeys) job._laborKeys = new Set();
+            if (!job._fallbackDates) job._fallbackDates = new Set();
+        }
+
+        function ingestLighthouseAction(action, iso) {
+            if (!action || typeof action !== "object") return;
+            const jobNumber = pickField(action, ["jobNumber", "jobNo", "job.jobNumber", "job.number", "orderNumber", "order.orderNumber"]);
+            const orderName = pickField(action, ["orderName", "order.name", "jobName", "eventName"]);
+            const clientName = pickField(action, ["clientName", "customerName", "accountName", "order.accountName"]);
+            const roomGuid = pickField(action, ["roomGuid", "roomGUID", "room.guid", "room.roomGuid", "roomId"]);
+            const roomName = pickField(action, ["roomName", "room.name", "roomDescription", "room.roomName"]);
+            const startRaw = pickField(action, ["orderStartDateTime", "order.startDateTime", "startDateTime", "start"]);
+            const endRaw = pickField(action, ["orderEndDateTime", "order.endDateTime", "endDateTime", "end"]);
+            const start = parseLighthouseDate(startRaw);
+            const end = parseLighthouseDate(endRaw);
+
+            const jobIdBase = jobNumber || pickField(action, ["orderId", "order.id", "jobId", "job.id", "id"]);
+            const jobId = roomGuid ? `${jobIdBase || orderName || clientName || ""}::${roomGuid}` : (jobIdBase || orderName || clientName || "");
+            if (!jobId) return;
+
+            let job = lighthouseState.jobsById.get(jobId);
+            if (!job) {
+                const roomInfo = normalizeLighthouseRoom(roomGuid, roomName);
+                job = {
+                    id: jobId,
+                    jobNumber: jobNumber || "",
+                    orderName: orderName || "",
+                    normalizedOrderName: normalizeSimple(orderName || ""),
+                    clientName: clientName || "",
+                    normalizedClient: normalizeSimple(clientName || ""),
+                    roomGuid: roomGuid || "",
+                    roomName: roomInfo.displayName || roomName || "",
+                    matchRooms: roomInfo.matches,
+                    start: start || null,
+                    end: end || null,
+                    contacts: [],
+                    equipment: [],
+                    labor: [],
+                    hasEquipment: false
+                };
+                lighthouseState.jobsById.set(jobId, job);
+            } else {
+                if (start && (!job.start || start < job.start)) job.start = start;
+                if (end && (!job.end || end > job.end)) job.end = end;
+            }
+
+            ensureJobMaps(job);
+            if (iso) job._fallbackDates.add(iso);
+            mergeContacts(job, action);
+            mergeEquipment(job, action);
+            mergeLabor(job, action);
+        }
+
+        function mergeContacts(job, action) {
+            const pools = [];
+            if (Array.isArray(action.contacts)) pools.push(action.contacts);
+            if (Array.isArray(action.orderContacts)) pools.push(action.orderContacts);
+            if (Array.isArray(action.contactDetails)) pools.push(action.contactDetails);
+            pools.forEach(list => {
+                list.forEach(contact => {
+                    if (!contact) return;
+                    const name = pickField(contact, ["fullName", "name", "displayName", "contactName"]);
+                    const role = pickField(contact, ["role", "title", "contactRole"]);
+                    if (!name) return;
+                    const key = `${normalizeSimple(name)}::${normalizeSimple(role || "")}`;
+                    if (job._contactKeys.has(key)) return;
+                    job.contacts.push({
+                        name,
+                        role: role || ""
+                    });
+                    job._contactKeys.add(key);
+                });
+            });
+            job.contacts.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        function mergeEquipment(job, action) {
+            const sections = [];
+            if (Array.isArray(action.equipmentSections)) sections.push(...action.equipmentSections);
+            if (action.equipment && Array.isArray(action.equipment.sections)) sections.push(...action.equipment.sections);
+            if (Array.isArray(action.equipment)) sections.push(...action.equipment);
+            sections.forEach(section => {
+                if (!section) return;
+                const category = (pickField(section, ["categoryName", "sectionName", "name", "category"]) || "").toLowerCase();
+                if (category.includes("internet")) return;
+                const items = [];
+                if (Array.isArray(section.items)) items.push(...section.items);
+                if (Array.isArray(section.equipmentDetails)) items.push(...section.equipmentDetails);
+                if (Array.isArray(section.equipmentItems)) items.push(...section.equipmentItems);
+                if (!items.length && section.item) items.push(section.item);
+                items.forEach(item => {
+                    if (!item) return;
+                    const desc = pickField(item, ["itemDescription", "description", "name", "productName", "displayName"]);
+                    if (!desc) return;
+                    const qty = parseQuantity(pickField(item, ["quantity", "qty", "amount", "totalQty", "count", "hours"]));
+                    const key = normalizeSimple(desc);
+                    const existing = job._equipmentMap.get(key) || {
+                        name: desc,
+                        normalizedName: key,
+                        quantity: 0,
+                        category: category || ""
+                    };
+                    existing.quantity += qty;
+                    if (!existing.category && category) existing.category = category;
+                    job._equipmentMap.set(key, existing);
+                });
+            });
+            job.equipment = Array.from(job._equipmentMap.values()).filter(item => item.quantity > 0).sort((a, b) => {
+                if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+                return a.name.localeCompare(b.name);
+            });
+            job.hasEquipment = job.equipment.length > 0;
+        }
+
+        function mergeLabor(job, action) {
+            const sections = [];
+            if (Array.isArray(action.laborSections)) sections.push(...action.laborSections);
+            if (Array.isArray(action.labor)) sections.push(...action.labor);
+            if (action.laborDetails && Array.isArray(action.laborDetails)) sections.push(...action.laborDetails);
+            sections.forEach(section => {
+                if (!section) return;
+                const entries = [];
+                if (Array.isArray(section.laborDetails)) entries.push(...section.laborDetails);
+                if (Array.isArray(section.items)) entries.push(...section.items);
+                if (Array.isArray(section.assignments)) entries.push(...section.assignments);
+                if (!entries.length && typeof section === "object" && !Array.isArray(section)) entries.push(section);
+                entries.forEach(entry => {
+                    if (!entry) return;
+                    const role = pickField(entry, ["roleName", "role", "position", "description"]) || pickField(section, ["sectionName", "name"]) || "";
+                    const start = parseLighthouseDate(pickField(entry, ["startDateTime", "start", "onSiteTime"]));
+                    const end = parseLighthouseDate(pickField(entry, ["endDateTime", "end", "offSiteTime"]));
+                    const key = `${normalizeSimple(role)}::${start ? start.getTime() : 0}::${end ? end.getTime() : 0}`;
+                    if (job._laborKeys.has(key)) return;
+                    job.labor.push({
+                        role: role || "",
+                        start: start || null,
+                        end: end || null
+                    });
+                    job._laborKeys.add(key);
+                });
+            });
+            job.labor.sort((a, b) => {
+                const aStart = a.start ? a.start.getTime() : 0;
+                const bStart = b.start ? b.start.getTime() : 0;
+                return aStart - bStart;
+            });
+        }
+
+        function computeActiveDates(job) {
+            const dates = new Set();
+            if (job.start && job.end) {
+                const cursor = new Date(job.start.getFullYear(), job.start.getMonth(), job.start.getDate(), 0, 0, 0, 0);
+                const end = new Date(job.end.getFullYear(), job.end.getMonth(), job.end.getDate(), 0, 0, 0, 0);
+                while (cursor <= end) {
+                    dates.add(toLocalISODate(cursor));
+                    cursor.setDate(cursor.getDate() + 1);
+                }
+            }
+            if (job._fallbackDates) {
+                job._fallbackDates.forEach(d => dates.add(d));
+            }
+            return Array.from(dates).sort();
+        }
+
+        function normalizeLighthouseActions(payload) {
+            if (!payload) return [];
+            if (Array.isArray(payload)) return payload;
+            if (Array.isArray(payload.actions)) return payload.actions;
+            if (Array.isArray(payload.data)) return payload.data;
+            if (payload.result) {
+                if (Array.isArray(payload.result)) return payload.result;
+                if (Array.isArray(payload.result.actions)) return payload.result.actions;
+            }
+            if (Array.isArray(payload.value)) return payload.value;
+            if (payload.items && Array.isArray(payload.items)) return payload.items;
+            return [];
+        }
+
+        function recomputeLighthouseState() {
+            lighthouseState.jobsById.clear();
+            lighthouseState.byDate.clear();
+
+            for (const [iso, actions] of lighthouseState.rawByDate.entries()) {
+                actions.forEach(action => ingestLighthouseAction(action, iso));
+            }
+
+            for (const job of lighthouseState.jobsById.values()) {
+                const dates = computeActiveDates(job);
+                dates.forEach(iso => {
+                    if (!lighthouseState.byDate.has(iso)) lighthouseState.byDate.set(iso, []);
+                    lighthouseState.byDate.get(iso).push(job);
+                });
+            }
+
+            for (const jobs of lighthouseState.byDate.values()) {
+                jobs.sort((a, b) => {
+                    const aStart = a.start ? a.start.getTime() : 0;
+                    const bStart = b.start ? b.start.getTime() : 0;
+                    return aStart - bStart;
+                });
+            }
+        }
+
+
+        function formatQuantity(qty) {
+            if (!Number.isFinite(Number(qty))) return qty || 0;
+            return Number(qty).toLocaleString();
+        }
+
+        function setAVPanel(title, html) {
+            const panel = document.getElementById("avPanel");
+            const header = document.getElementById("avPanelHeader");
+            const content = document.getElementById("avPanelContent");
+            if (!panel || !header || !content) return;
+            if (!html) {
+                clearAVPanel();
+                return;
+            }
+            header.textContent = title;
+            content.innerHTML = html;
+            panel.style.display = "block";
+        }
+
+        function clearAVPanel() {
+            const panel = document.getElementById("avPanel");
+            const header = document.getElementById("avPanelHeader");
+            const content = document.getElementById("avPanelContent");
+            if (!panel || !header || !content) return;
+            panel.style.display = "none";
+            header.textContent = "";
+            content.innerHTML = "";
+        }
+
+        function jobDetailHtml(job) {
+            if (!job) return "";
+            const metaLines = [];
+            if (job.clientName) metaLines.push(`Client: ${escapeHTML(job.clientName)}`);
+            if (job.jobNumber) metaLines.push(`Job #: ${escapeHTML(job.jobNumber)}`);
+            if (job.roomName) metaLines.push(`Room: ${escapeHTML(job.roomName)}`);
+            if (job.start || job.end) {
+                const start = job.start ? formatAMPM(job.start) : "";
+                const end = job.end ? formatAMPM(job.end) : "";
+                const schedule = start && end ? `${escapeHTML(start)} – ${escapeHTML(end)}` : escapeHTML(start || end);
+                if (schedule) metaLines.push(`Schedule: ${schedule}`);
+            }
+            const parts = [
+                `<div class="av-job-title">${escapeHTML(job.orderName || job.jobNumber || "Lighthouse Job")}</div>`
+            ];
+            if (metaLines.length) {
+                parts.push(`<div class="av-meta">${metaLines.join("<br>")}</div>`);
+            }
+            if (job.contacts && job.contacts.length) {
+                parts.push(`<div class="av-sub"><strong>Contacts</strong><ul class="av-list">${job.contacts.map(c => `<li>${escapeHTML(c.name)}${c.role ? ` — ${escapeHTML(c.role)}` : ""}</li>`).join("")}</ul></div>`);
+            }
+            if (job.equipment && job.equipment.length) {
+                parts.push(`<div class="av-sub"><strong>Equipment</strong><table class="av-table"><tbody>${job.equipment.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${formatQuantity(item.quantity)}</td></tr>`).join("")}</tbody></table></div>`);
+            } else {
+                parts.push(`<div class="av-sub"><strong>Equipment</strong><p style='opacity:.7;'>No AV gear listed.</p></div>`);
+            }
+            if (job.labor && job.labor.length) {
+                parts.push(`<div class="av-sub"><strong>Labor</strong><table class="av-table"><thead><tr><th>Role</th><th>Start</th><th>End</th></tr></thead><tbody>${job.labor.map(item => `<tr><td>${escapeHTML(item.role || "")}</td><td>${item.start ? escapeHTML(formatAMPM(item.start)) : ""}</td><td>${item.end ? escapeHTML(formatAMPM(item.end)) : ""}</td></tr>`).join("")}</tbody></table></div>`);
+            }
+            return `<div class="av-job">${parts.join("")}</div>`;
+        }
+
+        function renderDailyAVPanel(meta) {
+            if (!meta || !Array.isArray(meta.jobs) || !meta.jobs.length) {
+                if (!highlightAV) clearAVPanel();
+                return;
+            }
+            const labelParts = [];
+            if (meta.room) labelParts.push(meta.room);
+            if (meta.company) labelParts.push(meta.company);
+            const title = labelParts.length ? `${labelParts.join(" — ")} AV Details` : "Lighthouse AV Details";
+            const html = meta.jobs.map(jobDetailHtml).join("<div style='height:8px;'></div>");
+            setAVPanel(title, html);
+        }
+
+        function buildWeeklySummary() {
+            const ws = weekStart(currentDate);
+            const summaryDays = [];
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(ws);
+                d.setDate(ws.getDate() + i);
+                summaryDays.push({ iso: toLocalISODate(d), label: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) });
+            }
+            const weeklyTotals = new Map();
+            const counted = new Set();
+            const dailyUsage = new Map();
+            summaryDays.forEach(({ iso }) => {
+                const jobs = lighthouseState.byDate.get(iso) || [];
+                jobs.forEach(job => {
+                    if (!job || !job.hasEquipment) return;
+                    job.equipment.forEach(item => {
+                        if (!item) return;
+                        const itemKey = item.normalizedName || normalizeSimple(item.name);
+                        const jobKey = `${job.id}::${itemKey}`;
+                        if (!counted.has(jobKey)) {
+                            const weeklyEntry = weeklyTotals.get(itemKey) || { name: item.name, quantity: 0 };
+                            weeklyEntry.name = item.name;
+                            weeklyEntry.quantity += item.quantity || 0;
+                            weeklyTotals.set(itemKey, weeklyEntry);
+                            counted.add(jobKey);
+                        }
+                        if (!dailyUsage.has(iso)) dailyUsage.set(iso, new Map());
+                        const dayMap = dailyUsage.get(iso);
+                        const dayEntry = dayMap.get(itemKey) || { name: item.name, quantity: 0, day: iso };
+                        dayEntry.name = item.name;
+                        dayEntry.quantity += item.quantity || 0;
+                        dayMap.set(itemKey, dayEntry);
+                    });
+                });
+            });
+            const totals = Array.from(weeklyTotals.values()).filter(item => item.quantity > 0).sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
+            const peak = [];
+            dailyUsage.forEach((map, iso) => {
+                map.forEach(item => {
+                    const existing = peak.find(entry => normalizeSimple(entry.name) === normalizeSimple(item.name));
+                    const label = new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                    if (!existing || item.quantity > existing.quantity) {
+                        if (existing) {
+                            existing.quantity = item.quantity;
+                            existing.day = label;
+                        } else {
+                            peak.push({ name: item.name, quantity: item.quantity, day: label });
+                        }
+                    }
+                });
+            });
+            peak.sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
+            return {
+                totals,
+                peak,
+                hasData: totals.length > 0 || peak.length > 0
+            };
+        }
+
+        function renderWeeklySummaryPanel(detailMeta = null) {
+            const summary = buildWeeklySummary();
+            if (!summary.hasData && (!detailMeta || !detailMeta.jobs || !detailMeta.jobs.length)) {
+                clearAVPanel();
+                return;
+            }
+            let html = "";
+            if (summary.totals.length) {
+                html += `<div class="av-section"><h4>Weekly Totals</h4><table class="av-table"><thead><tr><th>Item</th><th>Qty</th></tr></thead><tbody>${summary.totals.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${formatQuantity(item.quantity)}</td></tr>`).join("")}</tbody></table></div>`;
+            } else {
+                html += `<div class="av-section"><h4>Weekly Totals</h4><p style='opacity:.7;'>No AV gear recorded.</p></div>`;
+            }
+            if (summary.peak.length) {
+                html += `<div class="av-section"><h4>Peak Daily Usage</h4><table class="av-table"><thead><tr><th>Item</th><th>Peak Qty</th><th>Day</th></tr></thead><tbody>${summary.peak.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${formatQuantity(item.quantity)}</td><td>${escapeHTML(item.day || "")}</td></tr>`).join("")}</tbody></table></div>`;
+            }
+            if (detailMeta && detailMeta.jobs && detailMeta.jobs.length) {
+                const dayLabel = new Date(detailMeta.dateIso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+                const detailHtml = detailMeta.jobs.map(jobDetailHtml).join("<div style='height:8px;'></div>");
+                html += `<div class="av-section"><h4>${escapeHTML(detailMeta.company || "")} — ${escapeHTML(dayLabel)}</h4>${detailHtml}</div>`;
+            }
+            setAVPanel("Weekly AV Summary", html);
+        }
+
+        function getCurrentViewDates() {
+            if (viewMode === "day") return [toLocalISODate(currentDate)];
+            const dates = [];
+            const ws = weekStart(currentDate);
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(ws);
+                d.setDate(ws.getDate() + i);
+                dates.push(toLocalISODate(d));
+            }
+            return dates;
+        }
+
+        async function fetchLighthouseActionsForDates(dates) {
+            if (!dates || !dates.length) return false;
+            lighthouseState.fetching = true;
+            updateLighthouseStatus("Fetching Lighthouse actions…", "info", true);
+            try {
+                const dataByDate = new Map();
+                const changedEntries = [];
+                const fetchTimestamp = new Date().toISOString();
+                for (const iso of dates) {
+                    const url = `${LIGHTHOUSE_ACTIONS_ENDPOINT}?asOf=${encodeURIComponent(iso)}`;
+                    const res = await fetch(url, { credentials: "include" });
+                    if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(text || `Lighthouse returned ${res.status}`);
+                    }
+                    const json = await res.json();
+                    dataByDate.set(iso, normalizeLighthouseActions(json));
+                }
+                let changed = false;
+                for (const [iso, list] of dataByDate.entries()) {
+                    const existing = lighthouseState.rawByDate.get(iso);
+                    const serializedExisting = existing ? JSON.stringify(existing) : "";
+                    const serializedNew = JSON.stringify(list);
+                    if (serializedExisting !== serializedNew) {
+                        lighthouseState.rawByDate.set(iso, list);
+                        changed = true;
+                        changedEntries.push({ iso, payload: list, savedAt: fetchTimestamp });
+                    }
+                }
+                if (changed) {
+                    recomputeLighthouseState();
+                    if (changedEntries.length) {
+                        await persistLighthouseCacheEntries(changedEntries);
+                    }
+                }
+                lighthouseState.lastSync = new Date();
+                lighthouseState.enabled = true;
+                lighthouseState.autoFetch = true;
+                updateLighthouseStatus("Lighthouse data synced.", "success");
+                return changed;
+            } catch (err) {
+                console.error("Lighthouse sync failed", err);
+                updateLighthouseStatus(`Sync failed: ${err?.message || err}`, "error", true);
+                return false;
+            } finally {
+                lighthouseState.fetching = false;
+            }
+        }
+
+        function maybeFetchLighthouseForView() {
+            if (!lighthouseState.autoFetch || lighthouseState.fetching) return;
+            const desired = getCurrentViewDates();
+            const missing = desired.filter(iso => !lighthouseState.byDate.has(iso));
+            if (!missing.length) return;
+            fetchLighthouseActionsForDates(missing).then(changed => {
+                if (changed) {
+                    redraw();
+                }
+            }).catch(err => console.error("Lighthouse auto-fetch failed", err));
+        }
+
+        function handleLighthouseSyncClick() {
+            if (lighthouseState.fetching) return;
+            window.open(LIGHTHOUSE_LOGIN_URL, "lighthouseLogin", "noopener,width=1024,height=768");
+            updateLighthouseStatus("Complete Lighthouse login in the popup, then stay here while we sync…", "info", true);
+            fetchLighthouseActionsForDates(getCurrentViewDates()).then(changed => {
+                if (changed) redraw();
+            });
+        }
+
+        function findLighthouseMatchesForEvent(ev) {
+            if (!lighthouseState.enabled) return [];
+            const eventDate = parseDayOfEvent(ev?.["Day of Event"]);
+            if (!eventDate) return [];
+            const iso = toLocalISODate(eventDate);
+            const dayJobs = lighthouseState.byDate.get(iso) || [];
+            if (!dayJobs.length) return [];
+            const [sh, sm] = parseTime(ev["Start Time"]);
+            const [eh, em] = parseTime(ev["End Time"]);
+            let start = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), sh, sm);
+            let end = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), eh, em);
+            if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+            const rooms = normalizeRooms(ev["Function Space"]);
+            const roomSet = new Set();
+            rooms.forEach(room => {
+                roomSet.add(room);
+                const base = PARENT_MAP[room];
+                if (base) roomSet.add(base);
+            });
+            const company = normalizeSimple(ev["Company Name"]);
+            const eventName = normalizeSimple(ev["Event Name"]);
+            const matches = [];
+            const seen = new Set();
+            dayJobs.forEach(job => {
+                if (!job || !job.hasEquipment) return;
+                if (roomSet.size && job.matchRooms && job.matchRooms.size) {
+                    let hasRoom = false;
+                    job.matchRooms.forEach(r => {
+                        if (!hasRoom && roomSet.has(r)) hasRoom = true;
+                    });
+                    if (!hasRoom) return;
+                }
+                const jobStart = job.start || start;
+                const jobEnd = job.end || end;
+                if (jobEnd <= start || jobStart >= end) return;
+                const clientMatch = company && job.normalizedClient && job.normalizedClient === company;
+                const nameMatch = eventName && job.normalizedOrderName && job.normalizedOrderName === eventName;
+                if (!clientMatch && !nameMatch && roomSet.size > 1) return;
+                if (!seen.has(job.id)) {
+                    matches.push(job);
+                    seen.add(job.id);
+                }
+            });
+            return matches;
+        }
+
+        function collectJobsForCompanyOnDate(company, dateIso) {
+            if (!lighthouseState.enabled || !company) return [];
+            const normalized = normalizeSimple(company);
+            const jobs = lighthouseState.byDate.get(dateIso) || [];
+            const seen = new Set();
+            const results = [];
+            jobs.forEach(job => {
+                if (!job || !job.hasEquipment) return;
+                if (job.normalizedClient === normalized && !seen.has(job.id)) {
+                    results.push(job);
+                    seen.add(job.id);
+                }
+            });
+            return results;
+        }
+
+        function handleTimelineSelection() {
+            if (!currentTimelineChart) return;
+            const selection = currentTimelineChart.getSelection();
+            if (!selection || !selection.length) return;
+            const rowIndex = selection[0].row;
+            if (rowIndex == null) return;
+            const meta = currentTimelineMetadata[rowIndex];
+            if (!meta) {
+                lastSelectionMeta = null;
+                if (!highlightAV) clearAVPanel();
+                return;
+            }
+            lastSelectionMeta = meta;
+            if (meta.type === "daily") {
+                renderDailyAVPanel(meta);
+            } else if (meta.type === "weekly") {
+                renderWeeklySummaryPanel(meta);
+            }
+        }
 
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
@@ -1013,6 +2186,16 @@
             return `${h}:${m} ${ampm}`;
         }
 
+        function escapeHTML(value) {
+            return (value || "").toString().replace(/[&<>"']/g, ch => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;"
+            }[ch] || ch));
+        }
+
         function monthLabel(d) {
             return d.toLocaleString("en-US", {
                 month: "long",
@@ -1189,8 +2372,10 @@
 
             const chosen = new Date(selectedDateISO + "T00:00:00");
             currentDate = chosen;
+            lastSelectionMeta = null;
 
             const groups = {};
+            const rowMetadata = [];
             let dataMin = null,
                 dataMax = null;
 
@@ -1207,6 +2392,7 @@
                 const company = ev["Company Name"] || "";
                 const eventName = ev["Event Name"] || "";
                 const labels = groupRoomsToLabels(rooms);
+                const matches = findLighthouseMatchesForEvent(ev);
 
                 if (end < start) {
                     const midnight = new Date(start);
@@ -1227,19 +2413,25 @@
                                 status,
                                 items: [],
                                 min: start,
-                                max: midnight
+                                max: midnight,
+                                jobSet: new Map()
                             };
                             groups[key].items.push({
                                 event: eventName,
                                 function: ev["Function Type"],
                                 setup: ev["Setup Style"],
                                 start,
-                                end: midnight
+                                end: midnight,
+                                jobs: matches
                             });
                             if (start < groups[key].min) groups[key].min = start;
                             if (midnight > groups[key].max) groups[key].max = midnight;
                             if (!dataMin || start < dataMin) dataMin = start;
                             if (!dataMax || midnight > dataMax) dataMax = midnight;
+                            if (matches.length) {
+                                matches.forEach(job => groups[key].jobSet.set(job.id, job));
+                                groups[key].hasAV = true;
+                            }
                         }
                         if (sameDay(nextDay, chosen)) {
                             const key = label + "||" + company + "||" + status + "||" + nextDay.toDateString();
@@ -1250,19 +2442,25 @@
                                 status,
                                 items: [],
                                 min: nextDay,
-                                max: endNext
+                                max: endNext,
+                                jobSet: new Map()
                             };
                             groups[key].items.push({
                                 event: eventName,
                                 function: ev["Function Type"],
                                 setup: ev["Setup Style"],
                                 start: nextDay,
-                                end: endNext
+                                end: endNext,
+                                jobs: matches
                             });
                             if (nextDay < groups[key].min) groups[key].min = nextDay;
                             if (endNext > groups[key].max) groups[key].max = endNext;
                             if (!dataMin || nextDay < dataMin) dataMin = nextDay;
                             if (!dataMax || endNext > dataMax) dataMax = endNext;
+                            if (matches.length) {
+                                matches.forEach(job => groups[key].jobSet.set(job.id, job));
+                                groups[key].hasAV = true;
+                            }
                         }
                     });
                     return;
@@ -1281,17 +2479,23 @@
                             status,
                             items: [],
                             min: start,
-                            max: end
+                            max: end,
+                            jobSet: new Map()
                         };
                         groups[key].items.push({
                             event: eventName,
                             function: ev["Function Type"],
                             setup: ev["Setup Style"],
                             start,
-                            end
+                            end,
+                            jobs: matches
                         });
                         if (start < groups[key].min) groups[key].min = start;
                         if (end > groups[key].max) groups[key].max = end;
+                        if (matches.length) {
+                            matches.forEach(job => groups[key].jobSet.set(job.id, job));
+                            groups[key].hasAV = true;
+                        }
                     });
                     if (!dataMin || start < dataMin) dataMin = start;
                     if (!dataMax || end > dataMax) dataMax = end;
@@ -1304,12 +2508,24 @@
                 Object.values(groups).forEach(g => {
                     if (g.base === roomBase && sameDay(g.min, chosen)) {
                         usedBases.add(roomBase);
-                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), "", g.min, g.max]);
+                        const jobs = g.jobSet ? Array.from(g.jobSet.values()) : [];
+                        const style = highlightAV && jobs.length ? AV_STYLE : "";
+                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), style, g.min, g.max]);
+                        rowMetadata.push({
+                            type: "daily",
+                            room: g.roomLabel,
+                            company: g.company || "",
+                            status: g.status,
+                            dateIso: toLocalISODate(chosen),
+                            jobs,
+                            items: g.items
+                        });
                     }
                 });
                 if (showAllRooms && !usedBases.has(roomBase)) {
                     const base = dataMin || new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 8, 0);
                     rows.push([roomBase, "", "", "color:#E5E7EB;", base, new Date(base.getTime() + 60000)]);
+                    rowMetadata.push(null);
                 }
             });
             if (!rows.length) {
@@ -1370,6 +2586,15 @@
                     }
                 }
             });
+            currentTimelineChart = chart;
+            currentTimelineData = dt;
+            currentTimelineMetadata = rowMetadata;
+            currentTimelineMode = "day";
+            google.visualization.events.removeAllListeners(chart);
+            google.visualization.events.addListener(chart, "select", handleTimelineSelection);
+            if (!highlightAV || !lastSelectionMeta || !lastSelectionMeta.jobs || !lastSelectionMeta.jobs.length) {
+                clearAVPanel();
+            }
         }
 
         /* Weekly: Sun→Sat columns always visible; per company, add day segments (filled when present) */
@@ -1407,6 +2632,7 @@
 
             const chosen = new Date(anyDateISO + "T00:00:00");
             currentDate = chosen;
+            lastSelectionMeta = null;
             const ws = weekStart(chosen); // Sun 00:00
             const we = weekEnd(chosen); // Sat 23:59:59.999
 
@@ -1481,6 +2707,7 @@
 
             // Rows: each company gets 7 day segments (Sun..Sat), filled if they have rooms
             const rows = [];
+            const rowMetadata = [];
             const companies = Array.from(perCompany.keys()).sort((a, b) => a.localeCompare(b));
             companies.forEach(company => {
                 for (let i = 0; i < 7; i++) {
@@ -1491,7 +2718,9 @@
                     const roomsList = has ? Array.from(perCompany.get(company).get(dayIso)).sort() : [];
                     const segStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
                     const segEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-                    const style = has ? "" : "color:#E5E7EB;";
+                    const jobMatches = collectJobsForCompanyOnDate(company, dayIso);
+                    let style = has ? "" : "color:#E5E7EB;";
+                    if (highlightAV && jobMatches.length) style = AV_STYLE;
 
                     const weekRange = `${ws.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${we.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
                     const span = companySpans.get(company);
@@ -1510,6 +2739,13 @@
 
 
                     rows.push([company, "", tip, style, segStart, segEnd]);
+                    rowMetadata.push({
+                        type: "weekly",
+                        company,
+                        dateIso: dayIso,
+                        jobs: jobMatches,
+                        rooms: roomsList
+                    });
                 }
             });
 
@@ -1570,6 +2806,17 @@
                     }
                 }
             });
+            currentTimelineChart = chart;
+            currentTimelineData = dt;
+            currentTimelineMetadata = rowMetadata;
+            currentTimelineMode = "weekly";
+            google.visualization.events.removeAllListeners(chart);
+            google.visualization.events.addListener(chart, "select", handleTimelineSelection);
+            if (highlightAV) {
+                renderWeeklySummaryPanel(null);
+            } else {
+                clearAVPanel();
+            }
         }
 
         /* ========= CHANGE LOG =========
@@ -1994,6 +3241,7 @@
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
                 }
+                await saveParsedReport(file, rows, target);
             } catch (err) {
                 console.error(err);
                 alert(`Unable to parse ${file.name}: ${err?.message || err}`);
@@ -2021,6 +3269,7 @@
             if (!google?.charts) return;
             if (viewMode === "day") drawDaily(toLocalISODate(currentDate));
             else drawWeekly(toLocalISODate(currentDate));
+            maybeFetchLighthouseForView();
         }
 
         function changeDay(offset) {
@@ -2163,7 +3412,9 @@
         }
 
         /* ========= EVENT HOOKS ========= */
-        function initUI() {
+        async function initUI() {
+            loadLighthouseRoomGuide().catch(err => console.warn("Room guide load failed", err));
+            await loadLighthouseCache();
             document.getElementById("csvFileA").addEventListener("change", e => {
                 const f = e.target.files[0];
                 processPdfUpload(f, "A");
@@ -2172,6 +3423,68 @@
                 const f = e.target.files[0];
                 processPdfUpload(f, "B");
             });
+
+            const selectA = document.getElementById("reportHistoryA");
+            const selectB = document.getElementById("reportHistoryB");
+            const toggleAVBtn = document.getElementById("toggleHighlightAV");
+            const lighthouseSyncBtn = document.getElementById("lighthouseSync");
+
+            if (selectA) {
+                selectA.addEventListener("change", async () => {
+                    const option = selectA.options[selectA.selectedIndex];
+                    selectA.title = option ? option.textContent : "";
+                    const id = selectA.value;
+                    if (!id) return;
+                    const loaded = await loadReportFromHistory(id, "A");
+                    if (!loaded) {
+                        alert("Unable to load the selected report from history.");
+                        selectA.value = "";
+                        selectA.selectedIndex = 0;
+                        const resetOption = selectA.options[selectA.selectedIndex];
+                        selectA.title = resetOption ? resetOption.textContent : "";
+                    }
+                });
+            }
+
+            if (selectB) {
+                selectB.addEventListener("change", async () => {
+                    const option = selectB.options[selectB.selectedIndex];
+                    selectB.title = option ? option.textContent : "";
+                    const id = selectB.value;
+                    if (!id) return;
+                    const loaded = await loadReportFromHistory(id, "B");
+                    if (!loaded) {
+                        alert("Unable to load the selected report from history.");
+                        selectB.value = "";
+                        selectB.selectedIndex = 0;
+                        const resetOption = selectB.options[selectB.selectedIndex];
+                        selectB.title = resetOption ? resetOption.textContent : "";
+                    }
+                });
+            }
+
+            if (toggleAVBtn) {
+                toggleAVBtn.classList.toggle("active", highlightAV);
+                toggleAVBtn.addEventListener("click", () => {
+                    highlightAV = !highlightAV;
+                    toggleAVBtn.classList.toggle("active", highlightAV);
+                    if (!highlightAV && (!lastSelectionMeta || lastSelectionMeta.type !== "daily")) {
+                        clearAVPanel();
+                    }
+                    redraw();
+                    if (viewMode === "week" && highlightAV) {
+                        renderWeeklySummaryPanel(lastSelectionMeta && lastSelectionMeta.type === "weekly" ? lastSelectionMeta : null);
+                    }
+                });
+            }
+
+            if (lighthouseSyncBtn) {
+                lighthouseSyncBtn.addEventListener("click", () => {
+                    handleLighthouseSyncClick();
+                });
+            }
+
+            await initializeReportHistory();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {
@@ -2231,7 +3544,7 @@
         window.addEventListener("resize", () => redraw());
 
         /* ========= BOOT ========= */
-        initUI();
+        initUI().catch(err => console.error("Failed to initialize UI", err));
     </script>
 
 

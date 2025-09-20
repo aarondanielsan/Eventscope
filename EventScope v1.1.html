@@ -793,6 +793,7 @@
         let viewMode = "day"; // 'day' | 'week'
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
+        const lighthouseCache = new Map();
 
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
@@ -999,6 +1000,34 @@
             return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
         }
 
+        function toMidnightUTCISO(value) {
+            if (value instanceof Date) {
+                return `${toLocalISODate(value)}T00:00:00.000Z`;
+            }
+            if (typeof value === "string") {
+                const [datePart] = value.split("T");
+                if (datePart && datePart.includes("-")) {
+                    const [y = "", m = "", d = ""] = datePart.split("-");
+                    const year = String(y).padStart(4, "0");
+                    const month = String(m).padStart(2, "0");
+                    const day = String(d).padStart(2, "0");
+                    if (year && month && day) {
+                        return `${year}-${month}-${day}T00:00:00.000Z`;
+                    }
+                }
+            }
+            const parsed = new Date(value);
+            if (!isNaN(parsed)) {
+                return `${toLocalISODate(parsed)}T00:00:00.000Z`;
+            }
+            return "";
+        }
+
+        function normalizeLighthouseDateKey(value) {
+            const iso = toMidnightUTCISO(value);
+            return iso || null;
+        }
+
         function sameDay(a, b) {
             return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
         }
@@ -1114,8 +1143,11 @@
         }
         // Convert "YYYY-MM-DD" into a Date at LOCAL midnight
         function fromISODateLocal(iso) {
-            const [y, m, d] = iso.split("-").map(Number);
-            return new Date(y, m - 1, d, 0, 0, 0, 0);
+            if (!iso) return new Date(NaN);
+            const core = String(iso).split("T")[0];
+            const parts = core.split("-").map(Number);
+            const [y, m, d] = parts;
+            return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
         }
 
         /* ======== SEARCH FILTER (timeline-only) ======== */
@@ -2000,7 +2032,73 @@
             }
         }
 
+        /* ========= LIGHTHOUSE ACTIONS ========= */
+        function getCachedLighthouseActions(date) {
+            const key = normalizeLighthouseDateKey(date);
+            return key ? lighthouseCache.get(key) : undefined;
+        }
+
+        async function fetchLighthouseActionsForDates(dates = []) {
+            const normalizedKeys = dates.map(normalizeLighthouseDateKey).filter(Boolean);
+            const uniqueKeys = Array.from(new Set(normalizedKeys));
+            const missing = uniqueKeys.filter(key => !lighthouseCache.has(key));
+
+            if (missing.length) {
+                const params = new URLSearchParams();
+                missing.forEach(key => params.append("dates", key));
+                const url = `/lighthouse/getactions?${params.toString()}`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Lighthouse proxy request failed (${response.status})`);
+                }
+                const payload = await response.json();
+                const container = payload?.results ?? payload?.actions ?? payload?.data ?? payload;
+                const assign = (rawKey, value) => {
+                    const key = normalizeLighthouseDateKey(rawKey);
+                    if (key) lighthouseCache.set(key, value);
+                };
+                if (Array.isArray(container)) {
+                    container.forEach(entry => {
+                        if (!entry) return;
+                        if (typeof entry === "object" && !Array.isArray(entry)) {
+                            const rawKey = entry.date || entry.day || entry.key || entry.iso || entry.id;
+                            if (rawKey) {
+                                const value = entry.actions ?? entry.items ?? entry.value ?? entry;
+                                assign(rawKey, value);
+                            } else {
+                                Object.entries(entry).forEach(([k, v]) => assign(k, v));
+                            }
+                        }
+                    });
+                } else if (container && typeof container === "object") {
+                    Object.entries(container).forEach(([rawKey, value]) => assign(rawKey, value));
+                }
+            }
+
+            const results = {};
+            normalizedKeys.forEach(key => {
+                if (lighthouseCache.has(key)) {
+                    results[key] = lighthouseCache.get(key);
+                }
+            });
+            return results;
+        }
+
         /* ========= DATE / VIEW CONTROLS ========= */
+        function getCurrentViewDates() {
+            if (viewMode === "week") {
+                const start = weekStart(currentDate);
+                const days = [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(start);
+                    d.setDate(start.getDate() + i);
+                    days.push(toMidnightUTCISO(d));
+                }
+                return days;
+            }
+            return [toMidnightUTCISO(currentDate)];
+        }
+
         function syncDateLabel() {
             const label = document.getElementById("dateLabel");
             if (viewMode === "day") {

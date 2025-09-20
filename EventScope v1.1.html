@@ -794,6 +794,10 @@
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
 
+        const lighthouseState = {
+            rawByDate: new Map()
+        };
+
         /* ========= PDF PARSING HEURISTICS ========= */
         const FUNCTION_TYPES = [
             "Meeting", "Breakout", "Breakfast", "Lunch", "Dinner", "Reception",
@@ -1116,6 +1120,109 @@
         function fromISODateLocal(iso) {
             const [y, m, d] = iso.split("-").map(Number);
             return new Date(y, m - 1, d, 0, 0, 0, 0);
+        }
+
+
+        /* ========= LIGHTHOUSE SYNC HELPERS ========= */
+        const LIGHTHOUSE_COLLECTION_KEYS = ["actions", "roomActions", "transferActions"];
+
+        function isPlainObject(value) {
+            return value !== null && typeof value === "object" && !Array.isArray(value);
+        }
+
+        function collectPrimitiveContext(entry, { includeId = false } = {}) {
+            const context = {};
+            if (!isPlainObject(entry)) return context;
+            Object.keys(entry).forEach(key => {
+                if (LIGHTHOUSE_COLLECTION_KEYS.includes(key)) return;
+                if (!includeId && (key === "id" || key === "actionId" || key === "actionID")) return;
+                const value = entry[key];
+                if (value === undefined || value === null) return;
+                if (Array.isArray(value)) return;
+                if (typeof value === "object") return;
+                context[key] = value;
+            });
+            return context;
+        }
+
+        function ensureSectionArrays(target) {
+            if (!isPlainObject(target)) return;
+            Object.keys(target).forEach(key => {
+                if (key.endsWith("Sections")) {
+                    const val = target[key];
+                    target[key] = Array.isArray(val) ? val.slice() : (val == null ? [] : [val]);
+                }
+            });
+            if (!Array.isArray(target.equipmentSections)) target.equipmentSections = [];
+            if (!Array.isArray(target.laborSections)) target.laborSections = [];
+        }
+
+        function normalizeLighthouseActions(payload) {
+            if (!isPlainObject(payload)) return [];
+
+            const baseEnvelope = {};
+            Object.entries(payload).forEach(([key, value]) => {
+                if (LIGHTHOUSE_COLLECTION_KEYS.includes(key)) return;
+                baseEnvelope[key] = value;
+            });
+            const baseContext = collectPrimitiveContext(baseEnvelope);
+            const queue = [];
+            const flat = [];
+            const seen = new Set();
+
+            const enqueue = (list, source, context) => {
+                if (!Array.isArray(list)) return;
+                list.forEach(item => {
+                    if (!isPlainObject(item)) return;
+                    queue.push({ action: item, source, context });
+                });
+            };
+
+            enqueue(payload.actions, "actions", baseContext);
+            enqueue(payload.roomActions, "roomActions", baseContext);
+            enqueue(payload.transferActions, "transferActions", baseContext);
+
+            while (queue.length) {
+                const { action, source, context } = queue.shift();
+                const dedupeId = action.id || action.actionId || action.actionID || action.guid || null;
+                if (dedupeId !== null) {
+                    const key = `${source}::${dedupeId}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                }
+
+                const inheritable = collectPrimitiveContext(action);
+                const combinedContext = { ...context, ...inheritable, __source: source };
+                const normalized = { ...baseEnvelope, ...combinedContext, ...action };
+
+                ensureSectionArrays(normalized);
+
+                const nested = Array.isArray(action.actions) ? action.actions : [];
+                delete normalized.actions;
+
+                flat.push(normalized);
+
+                if (nested.length) {
+                    const childContext = { ...combinedContext, ...collectPrimitiveContext(normalized) };
+                    delete childContext.__source;
+                    delete childContext.id;
+                    delete childContext.actionId;
+                    delete childContext.actionID;
+                    enqueue(nested, source, childContext);
+                }
+            }
+
+            return flat;
+        }
+
+        function setLighthouseActionsForDate(dayISO, payload) {
+            if (!dayISO) return [];
+            const normalized = normalizeLighthouseActions(payload);
+            lighthouseState.rawByDate.set(dayISO, normalized);
+            if (typeof ingestLighthouseAction === "function") {
+                normalized.forEach(action => ingestLighthouseAction(action));
+            }
+            return normalized;
         }
 
         /* ======== SEARCH FILTER (timeline-only) ======== */

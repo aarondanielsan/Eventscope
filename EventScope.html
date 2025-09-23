@@ -1887,6 +1887,62 @@
             }
         }
 
+        function parseDayOfEvent(str) {
+            if (!str) return null;
+            let d = new Date(str);
+            if (isNaN(d)) d = new Date(String(str).replace(/^[A-Za-z]+,\s*/, ""));
+            return isNaN(d) ? null : d;
+        }
+
+        function parseTime(str) {
+            if (!str) return [0, 0];
+            const parts = String(str).trim().split(" ");
+            const timePart = parts[0] || "0:00";
+            const mod = (parts[1] || "").toUpperCase();
+            const hhmm = timePart.split(":");
+            let h = Number(hhmm[0] || 0),
+                m = Number(hhmm[1] || 0);
+            if (mod === "PM" && h < 12) h += 12;
+            if (mod === "AM" && h === 12) h = 0;
+            return [h, m];
+        }
+
+        function sameDay(a, b) {
+            return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+        }
+
+        function formatAMPM(d) {
+            let h = d.getHours(),
+                m = d.getMinutes(),
+                ampm = h >= 12 ? "PM" : "AM";
+            h = h % 12;
+            h = h ? h : 12;
+            m = m < 10 ? "0" + m : m;
+            return `${h}:${m} ${ampm}`;
+        }
+
+        function monthLabel(d) {
+            return d.toLocaleString("en-US", {
+                month: "long",
+                year: "numeric"
+            });
+        }
+
+        function weekStart(d) {
+            const x = new Date(d);
+            const day = x.getDay();
+            x.setDate(x.getDate() - day);
+            x.setHours(0, 0, 0, 0);
+            return x;
+        }
+
+        function weekEnd(d) {
+            const ws = weekStart(d);
+            const we = new Date(ws);
+            we.setDate(ws.getDate() + 6);
+            we.setHours(23, 59, 59, 999);
+            return we;
+        }
 
         function shortTick(d) {
             return d.toLocaleDateString("en-US", {

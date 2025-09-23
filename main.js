@@ -174,9 +174,27 @@ async function fetchLighthouseActions(dateInput, attempt = 0) {
   };
   if (authToken) {
     headers.Authorization = authToken;
-  }
-  if (authCookieHeader) {
-    headers.Cookie = authCookieHeader;
+    console.log('[Lighthouse] Using Authorization header for Lighthouse fetch');
+  } else {
+    let cookieHeader = authCookieHeader;
+    if (!cookieHeader) {
+      try {
+        const cookies = await session.defaultSession.cookies.get({ url: 'https://api-cus.psav.com' });
+        if (cookies.length) {
+          cookieHeader = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+          console.log('[Lighthouse] Default session cookies collected for Lighthouse fetch');
+        }
+      } catch (error) {
+        console.warn('[Lighthouse] Unable to read default session cookies', error);
+      }
+    }
+    if (cookieHeader) {
+      headers.Cookie = cookieHeader;
+      authCookieHeader = cookieHeader;
+      console.log('[Lighthouse] Using Cookie header for Lighthouse fetch');
+    } else {
+      console.log('[Lighthouse] Proceeding without Authorization or Cookie headers');
+    }
   }
 
   console.log('[Lighthouse] Fetching actions for', asOf);

@@ -1849,9 +1849,10 @@
             return tokens.some(t => /(audio|visual|a\/v|av|tech|technology|lighting|sound|projection|video|stage|rigging)/i.test(t));
         }
 
-        function createEmptyLighthouseSummary(dateISO, payload) {
+        function createEmptyLighthouseSummary(dateISO, payload, options = {}) {
+            const requested = options?.requestedDate || dateISO;
             return {
-                date: dateISO,
+                date: requested,
                 raw: payload,
                 avActions: [],
                 byCompany: new Map(),
@@ -1861,10 +1862,16 @@
                 jobs: new Set(),
                 packageHeaders: new Map(),
                 diagnostics: {
-                    requestedDate: dateISO,
+                    requestedDate: requested,
+                    payloadDate: options?.payloadDate || null,
                     topLevelKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+                    roomActionsConsidered: 0,
                     roomActionCount: 0,
+                    jobsConsidered: 0,
                     jobCount: 0,
+                    jobsMatchedDate: 0,
+                    jobsDroppedByDate: 0,
+                    jobsWithoutDateInfo: 0,
                     jobsWithEquipment: 0,
                     jobsWithoutEquipment: 0,
                     usedStructuredRoomActions: false,
@@ -1873,6 +1880,8 @@
                     canonicalizationSeen: new Set(),
                     matchedRoomKeys: new Set(),
                     unmatchedRooms: [],
+                    jobDateMatches: [],
+                    jobDateDiscarded: [],
                 },
             };
         }
@@ -2196,11 +2205,324 @@
             children.forEach(child => processEquipmentItem(summary, roomEntry, jobEntry, categoryEntry, child, categoryName, depth + 1, structured));
         }
 
-        function processStructuredRoomActions(summary, roomActions) {
+        function parseDateValueToISO(value) {
+            if (value === null || value === undefined || value === '') return null;
+            if (typeof value === 'string') {
+                const trimmed = value.trim();
+                if (!trimmed) return null;
+                const msMatch = trimmed.match(/Date\((\d+)\)/i);
+                if (msMatch) {
+                    const dt = new Date(Number(msMatch[1]));
+                    if (!Number.isNaN(dt.getTime())) return toLocalISODate(dt);
+                }
+                if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 10);
+                const dt = new Date(trimmed);
+                if (!Number.isNaN(dt.getTime())) return toLocalISODate(dt);
+                return null;
+            }
+            if (value instanceof Date) {
+                if (!Number.isNaN(value.getTime())) return toLocalISODate(value);
+                return null;
+            }
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                const dt = new Date(value);
+                if (!Number.isNaN(dt.getTime())) return toLocalISODate(dt);
+            }
+            return null;
+        }
+
+        function appendDateCandidate(container, value, depth = 0) {
+            if (depth > 5) return;
+            if (!container) return;
+            if (!container.dates) container.dates = new Set();
+            if (!container.ranges) container.ranges = [];
+            if (!container.rangeKeys) container.rangeKeys = new Set();
+            if (value === null || value === undefined || value === '') return;
+            if (Array.isArray(value)) {
+                value.forEach(entry => appendDateCandidate(container, entry, depth + 1));
+                return;
+            }
+            if (typeof value === 'string') {
+                const trimmed = value.trim();
+                if (!trimmed) return;
+                const toParts = trimmed.split(/\s+to\s+/i);
+                if (toParts.length === 2 && toParts[0] && toParts[1]) {
+                    const startIso = parseDateValueToISO(toParts[0]);
+                    const endIso = parseDateValueToISO(toParts[1]);
+                    if (startIso || endIso) {
+                        const key = `${startIso || ''}|${endIso || ''}`;
+                        if (!container.rangeKeys.has(key)) {
+                            container.rangeKeys.add(key);
+                            container.ranges.push({ start: startIso || null, end: endIso || null });
+                        }
+                        return;
+                    }
+                }
+                const hyphenParts = trimmed.split(/\s*-\s*/);
+                if (hyphenParts.length === 2 && hyphenParts[0] && hyphenParts[1]) {
+                    const startIso = parseDateValueToISO(hyphenParts[0]);
+                    const endIso = parseDateValueToISO(hyphenParts[1]);
+                    if (startIso || endIso) {
+                        const key = `${startIso || ''}|${endIso || ''}`;
+                        if (!container.rangeKeys.has(key)) {
+                            container.rangeKeys.add(key);
+                            container.ranges.push({ start: startIso || null, end: endIso || null });
+                        }
+                        return;
+                    }
+                }
+                const iso = parseDateValueToISO(trimmed);
+                if (iso) {
+                    container.dates.add(iso);
+                }
+                return;
+            }
+            if (value instanceof Date) {
+                const iso = parseDateValueToISO(value);
+                if (iso) container.dates.add(iso);
+                return;
+            }
+            if (typeof value === 'number') {
+                const iso = parseDateValueToISO(value);
+                if (iso) container.dates.add(iso);
+                return;
+            }
+            if (typeof value === 'object') {
+                const startCandidates = [
+                    value.start,
+                    value.startDate,
+                    value.begin,
+                    value.from,
+                    value.beginDate,
+                    value.first,
+                    value.start_time,
+                    value.startTime,
+                    value.startDateTime,
+                    value.startLocal,
+                    value.startUtc,
+                ];
+                const endCandidates = [
+                    value.end,
+                    value.endDate,
+                    value.finish,
+                    value.to,
+                    value.last,
+                    value.endDateTime,
+                    value.end_time,
+                    value.endTime,
+                    value.endLocal,
+                    value.endUtc,
+                ];
+                let startIso = null;
+                for (const candidate of startCandidates) {
+                    const parsed = parseDateValueToISO(candidate);
+                    if (parsed) {
+                        startIso = parsed;
+                        break;
+                    }
+                }
+                let endIso = null;
+                for (const candidate of endCandidates) {
+                    const parsed = parseDateValueToISO(candidate);
+                    if (parsed) {
+                        endIso = parsed;
+                        break;
+                    }
+                }
+                if (startIso || endIso) {
+                    const key = `${startIso || ''}|${endIso || ''}`;
+                    if (!container.rangeKeys.has(key)) {
+                        container.rangeKeys.add(key);
+                        container.ranges.push({ start: startIso || null, end: endIso || null });
+                    }
+                }
+                const directCandidates = [
+                    value.date,
+                    value.Date,
+                    value.day,
+                    value.Day,
+                    value.value,
+                    value.dateValue,
+                    value.occurrenceDate,
+                    value.eventDate,
+                ];
+                directCandidates.forEach(candidate => appendDateCandidate(container, candidate, depth + 1));
+                const fallbackKeys = [
+                    'scheduledDate', 'scheduleDate', 'actionDate', 'eventDate', 'dayOfEvent', 'dueDate', 'pickupDate',
+                    'returnDate', 'deliveryDate', 'loadInDate', 'loadOutDate', 'strikeDate', 'installDate',
+                    'rehearsalDate', 'showDate', 'performanceDate', 'calendarDate', 'functionDate',
+                ];
+                fallbackKeys.forEach(key => {
+                    if (Object.prototype.hasOwnProperty.call(value, key)) {
+                        appendDateCandidate(container, value[key], depth + 1);
+                    }
+                });
+                const nestedKeys = [
+                    'schedule', 'Schedule', 'timeFrame', 'TimeFrame', 'timeframe', 'Timeframe', 'window', 'Window',
+                    'period', 'Period', 'range', 'Range', 'availability', 'Availability', 'booking', 'Booking',
+                    'function', 'Function', 'occurrence', 'Occurrence', 'reservation', 'Reservation', 'session', 'Session',
+                    'segment', 'Segment', 'times', 'Times',
+                ];
+                nestedKeys.forEach(key => {
+                    if (Object.prototype.hasOwnProperty.call(value, key)) {
+                        appendDateCandidate(container, value[key], depth + 1);
+                    }
+                });
+                const arrayKeys = [
+                    'dates', 'Dates', 'dateList', 'DateList', 'scheduledDates', 'ScheduledDates', 'eventDates', 'EventDates',
+                    'days', 'Days', 'dayList', 'DayList', 'occurrences', 'Occurrences', 'segments', 'Segments',
+                    'dateRange', 'DateRange', 'dateRanges', 'DateRanges',
+                ];
+                arrayKeys.forEach(key => {
+                    if (Object.prototype.hasOwnProperty.call(value, key)) {
+                        appendDateCandidate(container, value[key], depth + 1);
+                    }
+                });
+                if (depth < 3) {
+                    const maybeDateKeys = Object.keys(value || {}).filter(key => /date|day/i.test(key));
+                    maybeDateKeys.forEach(key => {
+                        if (!fallbackKeys.includes(key) && !nestedKeys.includes(key) && !arrayKeys.includes(key)) {
+                            appendDateCandidate(container, value[key], depth + 1);
+                        }
+                    });
+                }
+                return;
+            }
+        }
+
+        function collectDateCandidatesFromSource(container, source) {
+            if (!source) return;
+            const directKeys = [
+                'flowsheetDate', 'flowDate', 'date', 'Date', 'actionDate', 'ActionDate', 'eventDate', 'EventDate', 'dayOfEvent',
+                'DayOfEvent', 'scheduleDate', 'ScheduleDate', 'jobDate', 'JobDate', 'startDate', 'StartDate', 'endDate', 'EndDate',
+                'startDateTime', 'StartDateTime', 'endDateTime', 'EndDateTime', 'start', 'Start', 'end', 'End', 'startTime',
+                'StartTime', 'endTime', 'EndTime', 'dueDate', 'DueDate', 'calendarDate', 'CalendarDate', 'functionDate',
+                'FunctionDate', 'performanceDate', 'PerformanceDate', 'pickupDate', 'PickupDate', 'returnDate', 'ReturnDate',
+                'deliveryDate', 'DeliveryDate', 'loadInDate', 'LoadInDate', 'loadOutDate', 'LoadOutDate', 'showDate', 'ShowDate',
+                'rehearsalDate', 'RehearsalDate', 'installDate', 'InstallDate', 'removalDate', 'RemovalDate', 'strikeDate',
+                'StrikeDate', 'eventDay', 'EventDay', 'occurrenceDate', 'OccurrenceDate', 'meetingDate', 'MeetingDate',
+                'scheduledDay', 'ScheduledDay', 'startLocal', 'endLocal', 'startUtc', 'endUtc', 'startDateLocal', 'endDateLocal',
+            ];
+            directKeys.forEach(key => appendDateCandidate(container, source[key]));
+            const arrayKeys = [
+                'dates', 'Dates', 'dateList', 'DateList', 'scheduledDates', 'ScheduledDates', 'eventDates', 'EventDates', 'days',
+                'Days', 'dayList', 'DayList', 'occurrences', 'Occurrences', 'segments', 'Segments', 'dateRange', 'DateRange',
+                'dateRanges', 'DateRanges', 'jobDates', 'JobDates', 'scheduleDates', 'ScheduleDates',
+            ];
+            arrayKeys.forEach(key => appendDateCandidate(container, source[key]));
+            const nestedObjects = [
+                source.schedule,
+                source.Schedule,
+                source.timeFrame,
+                source.TimeFrame,
+                source.timeframe,
+                source.Timeframe,
+                source.window,
+                source.Window,
+                source.period,
+                source.Period,
+                source.range,
+                source.Range,
+                source.availability,
+                source.Availability,
+                source.booking,
+                source.Booking,
+                source.function,
+                source.Function,
+                source.occurrence,
+                source.Occurrence,
+                source.reservation,
+                source.Reservation,
+                source.session,
+                source.Session,
+                source.segment,
+                source.Segment,
+                source.details,
+                source.Details,
+            ];
+            nestedObjects.forEach(value => appendDateCandidate(container, value));
+            const pairFields = [
+                ['startDate', 'endDate'],
+                ['StartDate', 'EndDate'],
+                ['start', 'end'],
+                ['Start', 'End'],
+                ['startDateTime', 'endDateTime'],
+                ['StartDateTime', 'EndDateTime'],
+                ['startTime', 'endTime'],
+                ['StartTime', 'EndTime'],
+                ['scheduledStart', 'scheduledEnd'],
+                ['ScheduledStart', 'ScheduledEnd'],
+                ['loadInDate', 'loadOutDate'],
+                ['LoadInDate', 'LoadOutDate'],
+            ];
+            pairFields.forEach(([startKey, endKey]) => {
+                const startVal = source[startKey];
+                const endVal = source[endKey];
+                if (startVal || endVal) {
+                    appendDateCandidate(container, { start: startVal, end: endVal });
+                }
+            });
+        }
+
+        function jobMatchesRequestedDate(job, roomAction, targetISO) {
+            const container = { dates: new Set(), ranges: [], rangeKeys: new Set() };
+            collectDateCandidatesFromSource(container, roomAction);
+            collectDateCandidatesFromSource(container, job);
+            const singleDates = Array.from(container.dates.values());
+            const ranges = container.ranges.slice();
+            const hasDateInfo = singleDates.length > 0 || ranges.length > 0;
+            if (!targetISO) {
+                return {
+                    matches: true,
+                    hadDateInfo: hasDateInfo,
+                    candidateDates: singleDates,
+                    ranges,
+                    matchedDates: [],
+                };
+            }
+            let matches = false;
+            const matchedDates = new Set();
+            singleDates.forEach(date => {
+                if (date === targetISO) {
+                    matches = true;
+                    matchedDates.add(date);
+                }
+            });
+            if (!matches && ranges.length) {
+                const targetDate = fromISODateLocal(targetISO);
+                ranges.forEach(range => {
+                    if (!range) return;
+                    const startDate = range.start ? fromISODateLocal(range.start) : null;
+                    const endDate = range.end ? fromISODateLocal(range.end) : null;
+                    if (!targetDate) return;
+                    let inRange = false;
+                    if (startDate && endDate) {
+                        inRange = targetDate >= startDate && targetDate <= endDate;
+                    } else if (startDate) {
+                        inRange = targetDate >= startDate;
+                    } else if (endDate) {
+                        inRange = targetDate <= endDate;
+                    }
+                    if (inRange) {
+                        matches = true;
+                        matchedDates.add(range.start || range.end || targetISO);
+                    }
+                });
+            }
+            return {
+                matches: matches || !hasDateInfo,
+                hadDateInfo: hasDateInfo,
+                candidateDates: singleDates,
+                ranges,
+                matchedDates: Array.from(matchedDates.values()),
+            };
+        }
+
+        function processStructuredRoomActions(summary, roomActions, dateISO) {
             const diagnostics = summary?.diagnostics;
             roomActions.forEach(roomAction => {
                 if (diagnostics) {
-                    diagnostics.roomActionCount += 1;
+                    diagnostics.roomActionsConsidered += 1;
                 }
                 const roomGuid = roomAction?.roomGuid || roomAction?.roomId || roomAction?.room?.roomGuid;
                 const rawRoomName = roomAction?.roomName || roomAction?.room?.name || roomAction?.spaceName || roomAction?.name || '';
@@ -2219,19 +2541,57 @@
                             matched: Boolean(roomKey),
                         });
                     }
+                }
+                const jobs = extractRoomJobs(roomAction);
+                const matchingJobs = [];
+                jobs.forEach(job => {
+                    if (diagnostics) diagnostics.jobsConsidered += 1;
+                    const matchInfo = jobMatchesRequestedDate(job, roomAction, dateISO);
+                    if (!matchInfo.hadDateInfo && diagnostics) {
+                        diagnostics.jobsWithoutDateInfo += 1;
+                    }
+                    if (!matchInfo.matches) {
+                        if (diagnostics) {
+                            diagnostics.jobsDroppedByDate += 1;
+                            const jobNameForLog = extractJob(job) || extractJob(roomAction) || '';
+                            if (diagnostics.jobDateDiscarded.length < 200) {
+                                diagnostics.jobDateDiscarded.push({
+                                    job: jobNameForLog,
+                                    room: rawRoomName || roomName || '',
+                                    dates: matchInfo.candidateDates,
+                                    ranges: matchInfo.ranges.map(r => ({ start: r?.start || null, end: r?.end || null })),
+                                });
+                            }
+                        }
+                        return;
+                    }
+                    const jobName = extractJob(job) || extractJob(roomAction);
+                    matchingJobs.push({ job, jobName });
+                    if (diagnostics) {
+                        diagnostics.jobCount += 1;
+                        diagnostics.jobsMatchedDate += 1;
+                        if (Array.isArray(matchInfo.matchedDates) && matchInfo.matchedDates.length) {
+                            if (diagnostics.jobDateMatches.length < 200) {
+                                diagnostics.jobDateMatches.push({
+                                    job: jobName || '',
+                                    room: rawRoomName || roomName || '',
+                                    matchedDates: matchInfo.matchedDates,
+                                });
+                            }
+                        }
+                    }
+                });
+                if (!matchingJobs.length) return;
+                const roomEntry = ensureRoomEntry(summary, roomKey, roomName, canonical.guid);
+                if (diagnostics) {
+                    diagnostics.roomActionCount += 1;
                     if (roomKey) {
                         diagnostics.matchedRoomKeys.add(roomKey);
                     } else {
                         diagnostics.unmatchedRooms.push({ roomGuid: roomGuid || null, rawName: rawRoomName || '' });
                     }
                 }
-                const roomEntry = ensureRoomEntry(summary, roomKey, roomName, canonical.guid);
-                const jobs = extractRoomJobs(roomAction);
-                jobs.forEach(job => {
-                    if (diagnostics) {
-                        diagnostics.jobCount += 1;
-                    }
-                    const jobName = extractJob(job) || extractJob(roomAction);
+                matchingJobs.forEach(({ job, jobName }) => {
                     const company = extractJobCompany(roomAction, job);
                     const jobEntry = ensureJobEntry(roomEntry, jobName, company);
                     const contacts = extractJobContactsList(job);
@@ -2338,14 +2698,17 @@
             return fallbackISO;
         }
 
-        function computeLighthouseSummaryForDate(dateISO, payload) {
-            const summary = createEmptyLighthouseSummary(dateISO, payload);
+        function computeLighthouseSummaryForDate(dateISO, payload, options = {}) {
+            const summary = createEmptyLighthouseSummary(dateISO, payload, options);
             const roomActions = extractStructuredRoomActions(payload);
             if (summary.diagnostics) {
                 summary.diagnostics.usedStructuredRoomActions = roomActions.length > 0;
+                if (options?.payloadDate && !summary.diagnostics.payloadDate) {
+                    summary.diagnostics.payloadDate = options.payloadDate;
+                }
             }
             if (roomActions.length) {
-                processStructuredRoomActions(summary, roomActions);
+                processStructuredRoomActions(summary, roomActions, dateISO);
             } else {
                 const list = listFromPayload(payload);
                 if (summary.diagnostics) {
@@ -2362,8 +2725,25 @@
                 const rows = await lighthouseDB.actions.toArray();
                 rows.forEach(entry => {
                     try {
-                        const summary = computeLighthouseSummaryForDate(entry.date, entry.payload);
+                        const payloadKey = resolveLighthouseDateKey(entry.payload, entry.date);
+                        const summary = computeLighthouseSummaryForDate(entry.date, entry.payload, {
+                            requestedDate: entry.date,
+                            payloadDate: payloadKey,
+                        });
+                        if (summary.diagnostics) {
+                            summary.diagnostics.storeKey = payloadKey;
+                        }
                         lighthouseState.byDate.set(entry.date, summary);
+                        if (payloadKey && payloadKey !== entry.date && !lighthouseState.byDate.has(payloadKey)) {
+                            const payloadSummary = computeLighthouseSummaryForDate(payloadKey, entry.payload, {
+                                requestedDate: payloadKey,
+                                payloadDate: payloadKey,
+                            });
+                            if (payloadSummary.diagnostics) {
+                                payloadSummary.diagnostics.storeKey = payloadKey;
+                            }
+                            lighthouseState.byDate.set(payloadKey, payloadSummary);
+                        }
                     } catch (err) {
                         console.error("Failed to hydrate Lighthouse cache", err);
                     }
@@ -2374,28 +2754,44 @@
         }
 
         async function saveLighthousePayload(dateISO, payload) {
-            const summary = computeLighthouseSummaryForDate(dateISO, payload);
             const storeKey = resolveLighthouseDateKey(payload, dateISO);
-            if (summary.diagnostics) {
-                summary.diagnostics.storeKey = storeKey;
+            const requestedSummary = computeLighthouseSummaryForDate(dateISO, payload, {
+                requestedDate: dateISO,
+                payloadDate: storeKey,
+            });
+            if (requestedSummary.diagnostics) {
+                requestedSummary.diagnostics.storeKey = storeKey;
             }
-            lighthouseState.byDate.set(storeKey, summary);
-            if (storeKey !== dateISO) {
-                lighthouseState.byDate.set(dateISO, summary);
+            lighthouseState.byDate.set(dateISO, requestedSummary);
+            if (storeKey && storeKey !== dateISO) {
+                const payloadSummary = computeLighthouseSummaryForDate(storeKey, payload, {
+                    requestedDate: storeKey,
+                    payloadDate: storeKey,
+                });
+                if (payloadSummary.diagnostics) {
+                    payloadSummary.diagnostics.storeKey = storeKey;
+                }
+                lighthouseState.byDate.set(storeKey, payloadSummary);
+            } else {
+                lighthouseState.byDate.set(storeKey, requestedSummary);
             }
             if (lighthouseDB) {
+                const savedAt = new Date().toISOString();
                 try {
-                    await lighthouseDB.actions.put({ date: storeKey, payload, savedAt: new Date().toISOString() });
+                    await lighthouseDB.actions.put({ date: dateISO, payload, savedAt });
+                    if (storeKey && storeKey !== dateISO) {
+                        await lighthouseDB.actions.put({ date: storeKey, payload, savedAt });
+                    }
                 } catch (err) {
                     console.error("Unable to persist Lighthouse payload", err);
                 }
             }
             console.log(
-                '[Lighthouse] Payload stored for ' + storeKey +
-                ' (requested ' + dateISO + ') with ' +
-                summary.avActions.length + ' AV actions'
+                '[Lighthouse] Payload stored under requested ' + dateISO +
+                (storeKey && storeKey !== dateISO ? ' and payload ' + storeKey : '') +
+                ' with ' + requestedSummary.avActions.length + ' AV actions for the requested date'
             );
-            return summary;
+            return requestedSummary;
         }
 
         function getLighthouseSummary(dateISO) {
@@ -2787,11 +3183,41 @@
                 const diagnostics = summary.diagnostics || {};
                 const matchedRooms = diagnostics.matchedRoomKeys instanceof Set ? Array.from(diagnostics.matchedRoomKeys.values()) : (Array.isArray(diagnostics.matchedRoomKeys) ? diagnostics.matchedRoomKeys : []);
                 const unmatchedRooms = Array.isArray(diagnostics.unmatchedRooms) ? diagnostics.unmatchedRooms : [];
+                const totalJobsSeen = typeof diagnostics.jobsConsidered === 'number' ? diagnostics.jobsConsidered : (typeof diagnostics.jobCount === 'number' ? diagnostics.jobCount : payloadJobCount);
+                const jobsMatchedForDate = typeof diagnostics.jobsMatchedDate === 'number' ? diagnostics.jobsMatchedDate : (typeof diagnostics.jobCount === 'number' ? diagnostics.jobCount : 0);
+                const jobsDroppedForDate = typeof diagnostics.jobsDroppedByDate === 'number' ? diagnostics.jobsDroppedByDate : Math.max(0, totalJobsSeen - jobsMatchedForDate);
+                const payloadDateForLog = diagnostics.payloadDate || resolvedDate;
+                console.log(
+                    `[Lighthouse] Requested ${dateISO}, payload ${payloadDateForLog || 'unknown'}, ${totalJobsSeen} jobs found, ` +
+                    `${jobsMatchedForDate} matched for requested date${jobsDroppedForDate ? `, ${jobsDroppedForDate} filtered out` : ''}.`
+                );
+                if (diagnostics.jobsWithoutDateInfo) {
+                    console.log('[Lighthouse] Jobs without explicit date info treated as matches:', diagnostics.jobsWithoutDateInfo);
+                }
+                if (Array.isArray(diagnostics.jobDateDiscarded) && diagnostics.jobDateDiscarded.length) {
+                    const discardedSample = diagnostics.jobDateDiscarded.slice(0, 5);
+                    console.log('[Lighthouse] Jobs discarded due to date mismatch:', {
+                        count: diagnostics.jobDateDiscarded.length,
+                        sample: discardedSample,
+                    });
+                }
+                if (Array.isArray(diagnostics.jobDateMatches) && diagnostics.jobDateMatches.length) {
+                    const matchSample = diagnostics.jobDateMatches.slice(0, 5);
+                    console.log('[Lighthouse] Jobs matched by date sample:', {
+                        count: diagnostics.jobDateMatches.length,
+                        sample: matchSample,
+                    });
+                }
                 console.log('[Lighthouse] Summary diagnostics:', {
                     requestedDate: diagnostics.requestedDate || dateISO,
                     storeKey: diagnostics.storeKey || resolvedDate,
+                    roomActionsConsidered: diagnostics.roomActionsConsidered || 0,
                     roomActionCount: diagnostics.roomActionCount || 0,
                     jobCount: diagnostics.jobCount || 0,
+                    jobsConsidered: diagnostics.jobsConsidered || 0,
+                    jobsMatchedDate: diagnostics.jobsMatchedDate || diagnostics.jobCount || 0,
+                    jobsDroppedByDate: diagnostics.jobsDroppedByDate || 0,
+                    jobsWithoutDateInfo: diagnostics.jobsWithoutDateInfo || 0,
                     jobsWithEquipment: diagnostics.jobsWithEquipment || 0,
                     jobsWithoutEquipment: diagnostics.jobsWithoutEquipment || 0,
                     usedStructuredRoomActions: Boolean(diagnostics.usedStructuredRoomActions),

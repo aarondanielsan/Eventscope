@@ -124,6 +124,233 @@
             border: 1px solid var(--border);
         }
 
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn.toggled {
+            background: #3cc47c;
+            color: #0f1f3a;
+        }
+
+        .btn.secondary.toggled {
+            border-color: #3cc47c;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #223366;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: .8rem;
+            color: #cfe0ff;
+        }
+
+        .status-pill.success {
+            color: #22c55e;
+            border-color: rgba(34, 197, 94, 0.35);
+        }
+
+        .status-pill.error {
+            color: #f87171;
+            border-color: rgba(248, 113, 113, 0.45);
+        }
+
+        .status-pill.syncing {
+            color: #facc15;
+            border-color: rgba(250, 204, 21, 0.45);
+        }
+
+        .lighthouse-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .av-panel {
+            margin-top: 16px;
+            background: #17264d;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .av-panel h3 {
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        .av-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .av-panel-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .av-room-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .av-room-card {
+            background: rgba(15, 31, 58, 0.4);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+
+        .av-room-card h4 {
+            margin: 0 0 8px;
+            font-size: 1.05rem;
+        }
+
+        .av-job {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(17, 34, 68, 0.6);
+            border: 1px solid rgba(57, 76, 122, 0.45);
+        }
+
+        .av-job:last-child {
+            margin-bottom: 0;
+        }
+
+        .av-job-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: baseline;
+            margin-bottom: 6px;
+        }
+
+        .av-job-header strong {
+            font-size: .95rem;
+        }
+
+        .av-job-company {
+            font-size: .82rem;
+            color: var(--muted);
+        }
+
+        .av-job-contacts {
+            font-size: .78rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .av-category {
+            margin-bottom: 10px;
+        }
+
+        .av-category:last-child {
+            margin-bottom: 0;
+        }
+
+        .av-category h5 {
+            margin: 0 0 4px;
+            font-size: .82rem;
+            letter-spacing: .01em;
+            text-transform: uppercase;
+            color: #90b4ff;
+        }
+
+        .av-equipment {
+            list-style: none;
+            margin: 4px 0 0;
+            padding-left: 0;
+        }
+
+        .av-equipment li {
+            margin-bottom: 4px;
+            font-size: .84rem;
+            line-height: 1.35;
+        }
+
+        .av-equipment li:last-child {
+            margin-bottom: 0;
+        }
+
+        .av-equipment.depth-0 {
+            margin-left: 0;
+        }
+
+        .av-equipment.depth-1 {
+            margin-left: 16px;
+        }
+
+        .av-equipment.depth-2 {
+            margin-left: 32px;
+        }
+
+        .av-equipment.depth-3 {
+            margin-left: 48px;
+        }
+
+        .av-equipment .av-qty {
+            margin-left: 6px;
+            color: #9db7ff;
+            font-size: .78rem;
+        }
+
+        .av-meta {
+            margin-left: 6px;
+            font-size: .75rem;
+            color: var(--muted);
+        }
+
+        .av-sections {
+            display: grid;
+            gap: 14px;
+        }
+
+        .av-section {
+            background: #1d2f5a;
+            border: 1px solid rgba(57, 76, 122, 0.7);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .av-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+        }
+
+        .av-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .av-list li {
+            background: rgba(20, 32, 66, 0.8);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: .9rem;
+        }
+
+        .av-empty {
+            opacity: .75;
+            font-size: .9rem;
+        }
+
         .spacer {
             flex: 1
         }
@@ -663,6 +890,10 @@
                         <option value="">Select a saved report…</option>
                     </select>
                 </div>
+                <div class="group lighthouse-group">
+                    <button class="btn" id="lighthouseSyncBtn">Lighthouse Sync</button>
+                    <span class="status-pill" id="lighthouseStatus">Not connected</span>
+                </div>
             </div>
         </div>
 
@@ -792,6 +1023,18 @@
                         <p style="color:#c00; margin:12px;">No events found for this date.</p>
                     </div>
                 </div>
+                <div class="av-panel" id="lighthousePanel">
+                    <div class="av-panel-header">
+                        <h3>Audio / Visual Actions</h3>
+                        <div class="av-panel-controls">
+                            <button class="btn secondary" id="highlightAVBtn">Highlight AV</button>
+                            <span class="status-pill" id="lighthousePanelStatus">Sync Lighthouse to view AV data</span>
+                        </div>
+                    </div>
+                    <div id="lighthousePanelContent">
+                        <p class="av-empty">No Lighthouse data loaded for this date.</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -833,6 +1076,45 @@
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
 
+        const LIGHTHOUSE_BRIDGE = window.desktop?.lighthouse ?? null;
+        const LIGHTHOUSE_ENABLED = Boolean(LIGHTHOUSE_BRIDGE?.getActions);
+        const LIGHTHOUSE_STATUS_CLASSES = ["success", "error", "syncing"];
+        const LIGHTHOUSE_HIGHLIGHT_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
+
+        const ROOM_ORDER = [
+            "Whitley Ballroom", "Whitley Prefunction",
+            "Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII",
+            "Plaza Ballroom", "Plaza Prefunction", "Plaza I", "Plaza II", "Plaza III",
+            "Gallery", "Gallery Prefunction", "Gallery I", "Gallery II",
+            "Legacy Ballroom", "Legacy Prefunction", "Legacy I", "Legacy II",
+            "Ambassador", "Attache", "Attache Charge", "Boardroom", "Charge", "Consulate",
+            "Delegate", "Diplomat", "Director's Room", "Envoy", "The Founders Room"
+        ];
+        const SUBORDER = {
+            "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
+            "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
+            "Legacy Ballroom": ["Legacy I", "Legacy II"],
+            "Gallery": ["Gallery I", "Gallery II"]
+        };
+        const PARENT_MAP = {};
+        Object.entries(SUBORDER).forEach(([parent, subs]) => subs.forEach(sub => PARENT_MAP[sub] = parent));
+
+        const ROOM_GUIDE = [];
+        const ROOM_GUIDE_BY_GUID = new Map();
+        const ROOM_GUIDE_BY_KEY = new Map();
+
+        fetch('roomGuide.json')
+            .then(resp => resp.ok ? resp.json() : [])
+            .then(data => applyRoomGuide(data))
+            .catch(err => console.warn('Unable to load roomGuide.json', err));
+
+        const lighthouseState = {
+            byDate: new Map(),
+            selectedRoom: null,
+            selectedCompany: null,
+            highlightActive: false,
+        };
+
         /* ========= REPORT HISTORY (IndexedDB) ========= */
         const REPORT_HISTORY_LIMIT = 10;
         const reportDB = window.Dexie ? new Dexie("eventscopeReports") : null;
@@ -860,6 +1142,13 @@
                     delete entry.fileTimestamp;
                     delete entry.rows;
                 });
+            });
+        }
+
+        const lighthouseDB = window.Dexie ? new Dexie("eventscopeLighthouse") : null;
+        if (lighthouseDB) {
+            lighthouseDB.version(1).stores({
+                actions: "date"
             });
         }
 
@@ -1222,26 +1511,1067 @@
             return `${hour}:${minute} ${mod}`;
         }
 
-        /* ========= ROOM ORDERING ========= */
-        const ROOM_ORDER = [
-            "Whitley Ballroom", "Whitley Prefunction",
-            "Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII",
-            "Plaza Ballroom", "Plaza Prefunction", "Plaza I", "Plaza II", "Plaza III",
-            "Gallery", "Gallery Prefunction", "Gallery I", "Gallery II",
-            "Legacy Ballroom", "Legacy Prefunction", "Legacy I", "Legacy II",
-            "Ambassador", "Attache", "Attache Charge", "Boardroom", "Charge", "Consulate",
-            "Delegate", "Diplomat", "Director's Room", "Envoy", "The Founders Room"
-        ];
-        const SUBORDER = {
-            "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
-            "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
-            "Legacy Ballroom": ["Legacy I", "Legacy II"],
-            "Gallery": ["Gallery I", "Gallery II"]
-        };
-        const PARENT_MAP = {};
-        Object.entries(SUBORDER).forEach(([p, subs]) => subs.forEach(s => PARENT_MAP[s] = p));
+        /* ========= LIGHTHOUSE HELPERS ========= */
+        function updateStatusPill(el, text, type) {
+            if (!el) return;
+            if (typeof text === "string") {
+                el.textContent = text;
+            }
+            LIGHTHOUSE_STATUS_CLASSES.forEach(cls => el.classList.remove(cls));
+            if (type && LIGHTHOUSE_STATUS_CLASSES.includes(type)) {
+                el.classList.add(type);
+            }
+        }
 
-        /* ========= UTILS ========= */
+        function setLighthouseStatus(text, type) {
+            const el = document.getElementById("lighthouseStatus");
+            updateStatusPill(el, text, type);
+        }
+
+        function setLighthousePanelStatus(text, type) {
+            const el = document.getElementById("lighthousePanelStatus");
+            updateStatusPill(el, text, type);
+        }
+
+        function canonicalizeText(value) {
+            return (value ?? "").toString().trim().toLowerCase().replace(/\s+/g, " " );
+        }
+
+        function canonicalizeRoomKey(value) {
+            return canonicalizeText(value).replace(/[^a-z0-9 ]+/g, "");
+        }
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function applyRoomGuide(data) {
+            ROOM_GUIDE.length = 0;
+            ROOM_GUIDE_BY_GUID.clear();
+            ROOM_GUIDE_BY_KEY.clear();
+            if (!Array.isArray(data)) return;
+            data.forEach(entry => {
+                if (!entry) return;
+                const roomGuid = entry.roomGuid || entry.guid || entry.id || entry.RoomGuid || entry.RoomID || null;
+                const rawName = entry.roomName || entry.name || entry.description || entry.RoomName || '';
+                if (!roomGuid && !rawName) return;
+                const normalizedName = normalizeRoomDisplayName(rawName);
+                const key = canonicalizeRoomKey(normalizedName || rawName);
+                const record = {
+                    roomGuid,
+                    roomName: rawName || '',
+                    normalizedName: normalizedName || (rawName || '').trim(),
+                    key,
+                };
+                ROOM_GUIDE.push(record);
+                if (record.roomGuid) {
+                    ROOM_GUIDE_BY_GUID.set(record.roomGuid, record);
+                }
+                if (key) {
+                    if (!ROOM_GUIDE_BY_KEY.has(key)) {
+                        ROOM_GUIDE_BY_KEY.set(key, []);
+                    }
+                    ROOM_GUIDE_BY_KEY.get(key).push(record);
+                }
+            });
+            console.log('[Lighthouse] Loaded room guide entries:', ROOM_GUIDE.length);
+        }
+
+        function normalizeRoomDisplayName(name) {
+            if (!name) return '';
+            const normalized = normalizeRooms(name);
+            if (normalized.length) {
+                const base = PARENT_MAP[normalized[0]] || normalized[0];
+                return base;
+            }
+            const trimmed = String(name).trim();
+            if (!trimmed) return '';
+            const direct = ROOM_ORDER.find(room => room.toLowerCase() === trimmed.toLowerCase());
+            return direct || trimmed;
+        }
+
+        function canonicalizeRoomFromGuide(roomGuid, fallbackName) {
+            let entry = null;
+            if (roomGuid && ROOM_GUIDE_BY_GUID.has(roomGuid)) {
+                entry = ROOM_GUIDE_BY_GUID.get(roomGuid);
+            }
+            const fallbackNormalized = normalizeRoomDisplayName(fallbackName || '');
+            if (!entry && fallbackNormalized) {
+                const key = canonicalizeRoomKey(fallbackNormalized);
+                if (key && ROOM_GUIDE_BY_KEY.has(key)) {
+                    const list = ROOM_GUIDE_BY_KEY.get(key);
+                    if (list.length) entry = list[0];
+                }
+            }
+            let name = entry?.normalizedName || fallbackNormalized || '';
+            if (!name) {
+                const trimmed = (fallbackName || '').trim();
+                name = normalizeRoomDisplayName(trimmed) || trimmed;
+            }
+            let key = canonicalizeRoomKey(name);
+            if (!key && entry?.key) key = entry.key;
+            if (!key && fallbackName) {
+                key = canonicalizeRoomKey(normalizeRoomDisplayName(fallbackName) || fallbackName);
+            }
+            return {
+                guid: entry?.roomGuid || roomGuid || null,
+                name: name || fallbackName || '',
+                key: key || '',
+            };
+        }
+
+        function listFromPayload(payload) {
+            if (!payload) return [];
+            if (Array.isArray(payload)) return payload;
+            const preferred = ["actions", "value", "data", "results", "items"];
+            for (const key of preferred) {
+                if (Array.isArray(payload?.[key])) return payload[key];
+            }
+            if (Array.isArray(payload?.data?.items)) return payload.data.items;
+            if (Array.isArray(payload?.data?.results)) return payload.data.results;
+            return [];
+        }
+
+        function parseActionDate(action) {
+            const candidates = [
+                "actionDate", "ActionDate", "date", "Date", "dueDate", "DueDate",
+                "startDate", "StartDate", "start", "Start", "eventDate", "EventDate",
+                "dayOfEvent", "DayOfEvent", "scheduleDate", "ScheduleDate"
+            ];
+            for (const key of candidates) {
+                const raw = action?.[key];
+                if (!raw) continue;
+                const dt = new Date(raw);
+                if (!Number.isNaN(dt)) return dt;
+            }
+            const nested = [
+                action?.schedule?.startDate,
+                action?.timeFrame?.start,
+                action?.date?.start,
+                action?.window?.start
+            ];
+            for (const raw of nested) {
+                if (!raw) continue;
+                const dt = new Date(raw);
+                if (!Number.isNaN(dt)) return dt;
+            }
+            return null;
+        }
+
+        function extractCompany(action) {
+            const candidates = [
+                action?.companyName, action?.company?.name, action?.customerName, action?.customer?.name,
+                action?.accountName, action?.account?.name, action?.job?.accountName, action?.job?.companyName,
+                action?.orderName, action?.projectName, action?.eventName, action?.functionName, action?.jobName,
+                action?.organizationName, action?.clientName
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return action?.job?.name || "";
+        }
+
+        function extractDepartment(action) {
+            const candidates = [
+                action?.department, action?.departmentName, action?.resourceDepartment, action?.departmentDescription,
+                action?.Department, action?.ResourceDepartment, action?.categoryDepartment
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractCategory(action) {
+            const candidates = [
+                action?.category, action?.categoryName, action?.itemCategory, action?.resourceCategory,
+                action?.productCategory, action?.type, action?.Category
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractItem(action) {
+            const candidates = [
+                action?.itemName, action?.resourceName, action?.productName, action?.description, action?.name,
+                action?.ItemName, action?.ResourceName, action?.ProductName
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            if (typeof action === "string") return action;
+            return "";
+        }
+
+        function extractJob(action) {
+            const candidates = [
+                action?.jobName, action?.job?.name, action?.orderName, action?.projectName,
+                action?.eventName, action?.functionName, action?.bookingName
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractContact(action) {
+            const candidates = [
+                action?.contactName, action?.primaryContact, action?.customerContact, action?.ownerName,
+                action?.coordinatorName, action?.eventCoordinator, action?.contact?.name
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractQuantity(action) {
+            const candidates = [
+                action?.quantity, action?.qty, action?.qtyOrdered, action?.orderedQuantity, action?.numberOrdered,
+                action?.count, action?.Quantity
+            ];
+            for (const value of candidates) {
+                const num = Number(value);
+                if (Number.isFinite(num) && num > 0) return num;
+            }
+            return 1;
+        }
+
+        function deriveRoomsFromAction(action) {
+            const result = new Set();
+            const nameHints = [
+                action?.roomName, action?.room?.name, action?.room?.roomName,
+                action?.spaceName, action?.space?.name, action?.locationName
+            ].filter(Boolean);
+            const guidCandidates = [
+                action?.roomGuid, action?.room?.roomGuid, action?.room?.id, action?.roomId,
+                action?.spaceGuid, action?.space?.roomGuid
+            ];
+            guidCandidates.forEach(guid => {
+                if (!guid) return;
+                const fallback = nameHints.find(Boolean) || '';
+                const canonical = canonicalizeRoomFromGuide(guid, fallback);
+                if (canonical.name) result.add(canonical.name);
+            });
+            const buckets = [
+                action?.room, action?.roomName, action?.room?.name, action?.space, action?.spaceName, action?.space?.name,
+                action?.location, action?.locationName, action?.functionSpace, action?.FunctionSpace, action?.meetingRoom,
+                action?.meetingSpace, action?.venueRoom
+            ];
+            const arrayBuckets = [
+                action?.rooms, action?.spaces, action?.locations
+            ];
+            const values = [];
+            buckets.forEach(val => {
+                if (typeof val === "string") values.push(val);
+            });
+            arrayBuckets.forEach(arr => {
+                if (Array.isArray(arr)) {
+                    arr.forEach(entry => {
+                        if (typeof entry === "string") values.push(entry);
+                        else if (entry?.name) values.push(entry.name);
+                    });
+                }
+            });
+            values.forEach(raw => {
+                const cleaned = String(raw).trim();
+                if (!cleaned) return;
+                const canonical = canonicalizeRoomFromGuide(null, cleaned);
+                if (canonical.name) {
+                    result.add(canonical.name);
+                    return;
+                }
+                const normalized = normalizeRooms(cleaned);
+                if (normalized.length) {
+                    normalized.forEach(n => {
+                        const base = PARENT_MAP[n] || n;
+                        result.add(base);
+                    });
+                } else {
+                    const match = ROOM_ORDER.find(room => room.toLowerCase() === cleaned.toLowerCase());
+                    result.add(match || cleaned);
+                }
+            });
+            return Array.from(result);
+        }
+
+        function roomDisplayNameFromKey(key) {
+            if (!key) return "";
+            if (ROOM_GUIDE_BY_KEY.has(key) && ROOM_GUIDE_BY_KEY.get(key).length) {
+                const entry = ROOM_GUIDE_BY_KEY.get(key)[0];
+                if (entry?.normalizedName) return entry.normalizedName;
+                if (entry?.roomName) return entry.roomName;
+            }
+            const match = ROOM_ORDER.find(room => canonicalizeRoomKey(room) === key);
+            return match || key;
+        }
+
+        function isAudioVisualMatch(dept, category, item) {
+            const tokens = [dept, category, item]
+                .filter(Boolean)
+                .map(val => val.toString().toLowerCase());
+            if (!tokens.length) return false;
+            if (tokens.some(t => t.includes("internet"))) return false;
+            return tokens.some(t => /(audio|visual|a\/v|av|tech|technology|lighting|sound|projection|video|stage|rigging)/i.test(t));
+        }
+
+        function createEmptyLighthouseSummary(dateISO, payload) {
+            return {
+                date: dateISO,
+                raw: payload,
+                avActions: [],
+                byCompany: new Map(),
+                byRoom: new Map(),
+                gearTotals: new Map(),
+                contacts: new Map(),
+                jobs: new Set(),
+                packageHeaders: new Map(),
+            };
+        }
+
+        function ensureRoomEntry(summary, roomKey, roomName, roomGuid) {
+            const key = roomKey || canonicalizeRoomKey(roomName);
+            if (!key) {
+                return {
+                    key: '',
+                    name: roomName || '',
+                    guid: roomGuid || null,
+                    actions: [],
+                    jobs: new Map(),
+                };
+            }
+            if (!summary.byRoom.has(key)) {
+                summary.byRoom.set(key, {
+                    key,
+                    name: roomName || roomDisplayNameFromKey(key),
+                    guid: roomGuid || null,
+                    actions: [],
+                    jobs: new Map(),
+                });
+            } else {
+                const entry = summary.byRoom.get(key);
+                if (roomName && (!entry.name || entry.name === key)) entry.name = roomName;
+                if (roomGuid && !entry.guid) entry.guid = roomGuid;
+            }
+            return summary.byRoom.get(key);
+        }
+
+        function ensureJobEntry(roomEntry, jobName, company) {
+            if (!roomEntry) return null;
+            if (!roomEntry.jobs) roomEntry.jobs = new Map();
+            const baseKey = canonicalizeText(jobName || company || '');
+            const key = baseKey || `job-${roomEntry.jobs.size + 1}`;
+            if (!roomEntry.jobs.has(key)) {
+                roomEntry.jobs.set(key, {
+                    key,
+                    name: jobName || '',
+                    company: company || '',
+                    contacts: new Set(),
+                    categories: new Map(),
+                });
+            } else {
+                const jobEntry = roomEntry.jobs.get(key);
+                if (jobName && !jobEntry.name) jobEntry.name = jobName;
+                if (company && !jobEntry.company) jobEntry.company = company;
+            }
+            return roomEntry.jobs.get(key);
+        }
+
+        function addContactsToSummary(summary, jobEntry, contacts) {
+            if (!jobEntry) return;
+            if (!Array.isArray(contacts) || !contacts.length) return;
+            contacts.forEach(name => {
+                const trimmed = (name ?? '').toString().trim();
+                if (!trimmed) return;
+                if (!jobEntry.contacts) jobEntry.contacts = new Set();
+                jobEntry.contacts.add(trimmed);
+                const key = canonicalizeText(trimmed);
+                if (!summary.contacts.has(key)) {
+                    summary.contacts.set(key, { name: trimmed, jobs: new Set() });
+                }
+                if (jobEntry.name) {
+                    summary.contacts.get(key).jobs.add(jobEntry.name);
+                }
+            });
+        }
+
+        function recordSummaryAction(summary, roomEntry, jobEntry, details) {
+            const record = {
+                roomKey: roomEntry?.key || '',
+                roomName: roomEntry?.name || details.roomName || '',
+                roomGuid: roomEntry?.guid || details.roomGuid || null,
+                job: details.job || jobEntry?.name || '',
+                company: details.company || jobEntry?.company || '',
+                category: details.category || '',
+                description: details.description || '',
+                quantity: details.quantity ?? 0,
+                isPackageHeader: Boolean(details.isPackageHeader),
+            };
+            summary.avActions.push(record);
+            if (roomEntry && roomEntry.actions) {
+                roomEntry.actions.push(record);
+            }
+            if (record.job) {
+                summary.jobs.add(record.job);
+            }
+            const companyKey = canonicalizeText(record.company);
+            if (companyKey) {
+                if (!summary.byCompany.has(companyKey)) {
+                    summary.byCompany.set(companyKey, { name: record.company, rooms: new Map(), actions: [] });
+                }
+                const companyEntry = summary.byCompany.get(companyKey);
+                companyEntry.actions.push(record);
+                if (roomEntry?.key) {
+                    if (!companyEntry.rooms.has(roomEntry.key)) {
+                        companyEntry.rooms.set(roomEntry.key, { name: roomEntry.name, actions: [] });
+                    }
+                    companyEntry.rooms.get(roomEntry.key).actions.push(record);
+                }
+            }
+            if (record.isPackageHeader) {
+                const pkgKey = `${canonicalizeText(record.description)}|${record.quantity || 0}`;
+                if (!summary.packageHeaders.has(pkgKey)) {
+                    summary.packageHeaders.set(pkgKey, { name: record.description, quantity: record.quantity || 0, sources: new Set() });
+                }
+                if (record.job) summary.packageHeaders.get(pkgKey).sources.add(record.job);
+            } else {
+                const descKey = canonicalizeText(record.description);
+                if (descKey && !descKey.includes('internet')) {
+                    if (!summary.gearTotals.has(descKey)) {
+                        summary.gearTotals.set(descKey, { name: record.description, quantity: 0, sources: new Set() });
+                    }
+                    const gearEntry = summary.gearTotals.get(descKey);
+                    gearEntry.quantity += record.quantity || 0;
+                    if (record.job) gearEntry.sources.add(record.job);
+                }
+            }
+            return record;
+        }
+
+        function extractStructuredRoomActions(payload) {
+            if (!payload) return [];
+            if (Array.isArray(payload.roomActions)) return payload.roomActions;
+            if (Array.isArray(payload?.value?.roomActions)) return payload.value.roomActions;
+            if (Array.isArray(payload?.data?.roomActions)) return payload.data.roomActions;
+            if (Array.isArray(payload?.rooms)) return payload.rooms;
+            return [];
+        }
+
+        function extractRoomJobs(roomAction) {
+            const result = [];
+            const candidates = [
+                roomAction?.jobs,
+                roomAction?.jobActions,
+                roomAction?.roomJobs,
+                roomAction?.actions,
+                roomAction?.items,
+                roomAction?.jobList,
+                roomAction?.events,
+            ];
+            candidates.forEach(list => {
+                if (Array.isArray(list)) {
+                    list.forEach(job => {
+                        if (job) result.push(job);
+                    });
+                }
+            });
+            return result;
+        }
+
+        function extractJobCompany(roomAction, job) {
+            return extractCompany(job) || extractCompany(roomAction) || '';
+        }
+
+        function extractJobContactsList(job) {
+            const result = new Set();
+            const direct = [
+                job?.primaryContact, job?.contactName, job?.customerContact, job?.ownerName,
+                job?.coordinatorName, job?.eventCoordinator, job?.contact?.name
+            ];
+            direct.forEach(name => {
+                if (name) result.add(name);
+            });
+            const arrays = [job?.contacts, job?.contactList, job?.contactsList, job?.contactPersons, job?.contactAssignments];
+            arrays.forEach(list => {
+                if (!Array.isArray(list)) return;
+                list.forEach(entry => {
+                    if (!entry) return;
+                    if (typeof entry === 'string') {
+                        result.add(entry);
+                    } else if (entry.name) {
+                        result.add(entry.name);
+                    } else if (entry.contactName) {
+                        result.add(entry.contactName);
+                    } else if (entry.fullName) {
+                        result.add(entry.fullName);
+                    }
+                });
+            });
+            return Array.from(result.values());
+        }
+
+        function extractEquipmentSections(job) {
+            const sections = [];
+            const candidates = [
+                job?.equipmentSections,
+                job?.equipment?.sections,
+                job?.equipment?.equipmentSections,
+                job?.sections,
+                job?.equipmentSectionList,
+            ];
+            candidates.forEach(list => {
+                if (Array.isArray(list)) {
+                    list.forEach(section => {
+                        if (section) sections.push(section);
+                    });
+                }
+            });
+            return sections;
+        }
+
+        function extractSectionName(section) {
+            const candidates = [
+                section?.sectionName,
+                section?.name,
+                section?.categoryName,
+                section?.title,
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return 'Equipment';
+        }
+
+        function extractEquipmentItems(section) {
+            const items = [];
+            const candidates = [
+                section?.equipmentItems,
+                section?.items,
+                section?.resources,
+                section?.equipment,
+            ];
+            candidates.forEach(list => {
+                if (Array.isArray(list)) {
+                    list.forEach(item => {
+                        if (item) items.push(item);
+                    });
+                }
+            });
+            return items;
+        }
+
+        function extractEquipmentDescription(item) {
+            const candidates = [
+                item?.description, item?.itemDescription, item?.displayName, item?.name,
+                item?.itemName, item?.resourceName, item?.productName,
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            if (typeof item === 'string') return item;
+            return '';
+        }
+
+        function isPackageHeaderItem(item) {
+            const candidates = [
+                item?.isPackageHeader, item?.packageHeader, item?.isHeader, item?.isPackage, item?.IsPackageHeader,
+            ];
+            return candidates.some(flag => Boolean(flag));
+        }
+
+        function getChildEquipmentItems(item) {
+            const children = [];
+            const candidates = [item?.childItems, item?.children, item?.items];
+            candidates.forEach(list => {
+                if (!Array.isArray(list)) return;
+                list.forEach(entry => {
+                    if (entry) children.push(entry);
+                });
+            });
+            return children;
+        }
+
+        function processEquipmentItem(summary, roomEntry, jobEntry, categoryEntry, item, categoryName, depth, parentStructured) {
+            if (!item) return;
+            const description = extractEquipmentDescription(item);
+            if (!description) return;
+            const quantity = extractQuantity(item);
+            const isPackageHeader = isPackageHeaderItem(item);
+            const structured = { description, quantity, isPackageHeader, children: [] };
+            if (depth === 0) {
+                categoryEntry.items.push(structured);
+            } else if (parentStructured) {
+                parentStructured.children.push(structured);
+            }
+            recordSummaryAction(summary, roomEntry, jobEntry, {
+                job: jobEntry?.name,
+                company: jobEntry?.company,
+                category: categoryName,
+                description,
+                quantity,
+                isPackageHeader,
+            });
+            const children = getChildEquipmentItems(item);
+            children.forEach(child => processEquipmentItem(summary, roomEntry, jobEntry, categoryEntry, child, categoryName, depth + 1, structured));
+        }
+
+        function processStructuredRoomActions(summary, roomActions) {
+            roomActions.forEach(roomAction => {
+                const roomGuid = roomAction?.roomGuid || roomAction?.roomId || roomAction?.room?.roomGuid;
+                const rawRoomName = roomAction?.roomName || roomAction?.room?.name || roomAction?.spaceName || roomAction?.name || '';
+                const canonical = canonicalizeRoomFromGuide(roomGuid, rawRoomName);
+                const roomName = canonical.name || normalizeRoomDisplayName(rawRoomName) || rawRoomName || '';
+                const roomKey = canonical.key || canonicalizeRoomKey(roomName);
+                const roomEntry = ensureRoomEntry(summary, roomKey, roomName, canonical.guid);
+                const jobs = extractRoomJobs(roomAction);
+                jobs.forEach(job => {
+                    const jobName = extractJob(job) || extractJob(roomAction);
+                    const company = extractJobCompany(roomAction, job);
+                    const jobEntry = ensureJobEntry(roomEntry, jobName, company);
+                    const contacts = extractJobContactsList(job);
+                    if (!contacts.length) {
+                        const fallback = extractContact(job);
+                        if (fallback) contacts.push(fallback);
+                    }
+                    addContactsToSummary(summary, jobEntry, contacts);
+                    const sections = extractEquipmentSections(job);
+                    if (!sections.length) return;
+                    sections.forEach(section => {
+                        const categoryName = extractSectionName(section) || 'Equipment';
+                        const categoryKey = canonicalizeText(categoryName) || `category-${jobEntry.categories.size}`;
+                        if (!jobEntry.categories.has(categoryKey)) {
+                            jobEntry.categories.set(categoryKey, { key: categoryKey, name: categoryName, items: [] });
+                        }
+                        const categoryEntry = jobEntry.categories.get(categoryKey);
+                        const items = extractEquipmentItems(section);
+                        items.forEach(item => {
+                            processEquipmentItem(summary, roomEntry, jobEntry, categoryEntry, item, categoryName, 0, null);
+                        });
+                    });
+                });
+            });
+        }
+
+        function processGenericActions(summary, list, dateISO) {
+            list.forEach(action => {
+                const actionDate = parseActionDate(action);
+                if (actionDate) {
+                    const iso = toLocalISODate(actionDate);
+                    if (iso && iso !== dateISO) return;
+                }
+                const department = extractDepartment(action);
+                const category = extractCategory(action);
+                const item = extractItem(action);
+                const job = extractJob(action);
+                const company = extractCompany(action);
+                const contact = extractContact(action);
+                const quantity = extractQuantity(action);
+                const rooms = deriveRoomsFromAction(action);
+                const isAV = isAudioVisualMatch(department, category, item);
+                if (!isAV) return;
+                const targets = rooms.length ? rooms : [''];
+                targets.forEach(roomName => {
+                    const canonical = canonicalizeRoomFromGuide(null, roomName);
+                    const displayName = canonical.name || normalizeRoomDisplayName(roomName) || roomName || '';
+                    const roomKey = canonical.key || canonicalizeRoomKey(displayName);
+                    const roomEntry = ensureRoomEntry(summary, roomKey, displayName, canonical.guid);
+                    const jobEntry = ensureJobEntry(roomEntry, job, company);
+                    if (contact) {
+                        addContactsToSummary(summary, jobEntry, [contact]);
+                    }
+                    if (jobEntry) {
+                        if (!jobEntry.categories.has('av-default')) {
+                            jobEntry.categories.set('av-default', { key: 'av-default', name: category || 'AV Equipment', items: [] });
+                        }
+                        const categoryEntry = jobEntry.categories.get('av-default');
+                        categoryEntry.items.push({ description: item || 'Item', quantity, isPackageHeader: false, children: [] });
+                    }
+                    recordSummaryAction(summary, roomEntry, jobEntry, {
+                        job,
+                        company,
+                        category: category || 'AV Equipment',
+                        description: item || 'Item',
+                        quantity,
+                        isPackageHeader: false,
+                    });
+                });
+            });
+        }
+
+        function computeLighthouseSummaryForDate(dateISO, payload) {
+            const summary = createEmptyLighthouseSummary(dateISO, payload);
+            const roomActions = extractStructuredRoomActions(payload);
+            if (roomActions.length) {
+                processStructuredRoomActions(summary, roomActions);
+            } else {
+                const list = listFromPayload(payload);
+                processGenericActions(summary, list, dateISO);
+            }
+            return summary;
+        }
+
+        async function loadStoredLighthouseData() {
+            if (!lighthouseDB) return;
+            try {
+                const rows = await lighthouseDB.actions.toArray();
+                rows.forEach(entry => {
+                    try {
+                        const summary = computeLighthouseSummaryForDate(entry.date, entry.payload);
+                        lighthouseState.byDate.set(entry.date, summary);
+                    } catch (err) {
+                        console.error("Failed to hydrate Lighthouse cache", err);
+                    }
+                });
+            } catch (err) {
+                console.error("Unable to read Lighthouse cache", err);
+            }
+        }
+
+        async function saveLighthousePayload(dateISO, payload) {
+            const summary = computeLighthouseSummaryForDate(dateISO, payload);
+            lighthouseState.byDate.set(dateISO, summary);
+            if (lighthouseDB) {
+                try {
+                    await lighthouseDB.actions.put({ date: dateISO, payload, savedAt: new Date().toISOString() });
+                } catch (err) {
+                    console.error("Unable to persist Lighthouse payload", err);
+                }
+            }
+            console.log('[Lighthouse] Payload stored for', dateISO, 'with', summary.avActions.length, 'items');
+            return summary;
+        }
+
+        function getLighthouseSummary(dateISO) {
+            return lighthouseState.byDate.get(dateISO) || null;
+        }
+
+        function shouldHighlightRoomForDate(dateObj, company, baseRoom) {
+            if (!lighthouseState.highlightActive) return false;
+            if (!dateObj) return false;
+            const iso = toLocalISODate(dateObj);
+            const summary = getLighthouseSummary(iso);
+            if (!summary) return false;
+            const roomKey = canonicalizeRoomKey(baseRoom);
+            const companyKey = canonicalizeText(company);
+            if (roomKey && summary.byRoom.has(roomKey)) {
+                if (!companyKey) return summary.byRoom.get(roomKey).actions.length > 0;
+                const companyEntry = summary.byCompany.get(companyKey);
+                if (!companyEntry) return summary.byRoom.get(roomKey).actions.length > 0;
+                const companyRoom = companyEntry.rooms.get(roomKey);
+                return Boolean(companyRoom && companyRoom.actions.length);
+            }
+            if (companyKey && summary.byCompany.has(companyKey)) {
+                return summary.byCompany.get(companyKey).actions.length > 0;
+            }
+            return summary.avActions.length > 0;
+        }
+
+        function shouldHighlightWeekly(company, dayIso) {
+            if (!lighthouseState.highlightActive) return false;
+            const summary = getLighthouseSummary(dayIso);
+            if (!summary) return false;
+            const companyKey = canonicalizeText(company);
+            if (companyKey && summary.byCompany.has(companyKey)) {
+                return summary.byCompany.get(companyKey).actions.length > 0;
+            }
+            return summary.avActions.length > 0;
+        }
+
+        function renderSimpleList(items, emptyText) {
+            if (!items.length) {
+                return `<p class="av-empty">${emptyText}</p>`;
+            }
+            return `<ul class="av-list">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
+        }
+
+        function formatQuantityDisplay(quantity) {
+            const num = Number(quantity);
+            if (Number.isFinite(num)) {
+                if (Number.isInteger(num)) return num.toString();
+                return num.toFixed(2);
+            }
+            return (quantity ?? 0).toString();
+        }
+
+        function compareRoomsForDisplay(a, b) {
+            const orderValue = entry => {
+                const key = entry?.key || canonicalizeRoomKey(entry?.name || '');
+                const idx = ROOM_ORDER.findIndex(room => canonicalizeRoomKey(room) === key);
+                return idx === -1 ? ROOM_ORDER.length : idx;
+            };
+            const diff = orderValue(a) - orderValue(b);
+            if (diff !== 0) return diff;
+            return (a?.name || '').localeCompare(b?.name || '');
+        }
+
+        function renderEquipmentItem(item, depth) {
+            if (!item) return '';
+            const qty = formatQuantityDisplay(item.quantity ?? 0);
+            const qtyLabel = `<span class="av-qty">×${qty}</span>`;
+            const labelText = escapeHtml(item.description || 'Item');
+            const label = item.isPackageHeader ? `<strong>${labelText}</strong>` : labelText;
+            const nextDepth = Math.min(depth + 1, 3);
+            const children = Array.isArray(item.children) && item.children.length ? renderEquipmentList(item.children, nextDepth) : '';
+            return `<li>${label}${qtyLabel}${children}</li>`;
+        }
+
+        function renderEquipmentList(items, depth = 0) {
+            if (!Array.isArray(items) || !items.length) {
+                return '<p class="av-empty">No equipment items listed.</p>';
+            }
+            return `<ul class="av-equipment depth-${depth}">${items.map(item => renderEquipmentItem(item, depth)).join('')}</ul>`;
+        }
+
+        function renderCategoryBlock(categoryEntry) {
+            if (!categoryEntry) return '';
+            const items = categoryEntry.items || [];
+            const content = items.length ? renderEquipmentList(items, 0) : '<p class="av-empty">No equipment items listed.</p>';
+            return `<div class="av-category"><h5>${escapeHtml(categoryEntry.name || 'Equipment')}</h5>${content}</div>`;
+        }
+
+        function renderJobBlock(jobEntry) {
+            if (!jobEntry) return '';
+            const titleParts = [];
+            if (jobEntry.name) titleParts.push(`<strong>${escapeHtml(jobEntry.name)}</strong>`);
+            if (jobEntry.company) titleParts.push(`<span class="av-job-company">${escapeHtml(jobEntry.company)}</span>`);
+            const header = titleParts.length ? `<div class="av-job-header">${titleParts.join(' ')}</div>` : '';
+            const contacts = jobEntry.contacts ? Array.from(jobEntry.contacts.values()).filter(Boolean) : [];
+            const contactsHtml = contacts.length ? `<div class="av-job-contacts">Contacts: ${contacts.map(escapeHtml).join(', ')}</div>` : '';
+            const categories = Array.from(jobEntry.categories?.values?.() || []);
+            const categoryHtml = categories.length ? categories.map(renderCategoryBlock).join('') : '<p class="av-empty">No AV equipment listed.</p>';
+            return `<div class="av-job">${header}${contactsHtml}${categoryHtml}</div>`;
+        }
+
+        function renderRoomCard(roomEntry) {
+            if (!roomEntry) return '';
+            const jobs = Array.from(roomEntry.jobs?.values?.() || []);
+            const jobHtml = jobs.length ? jobs.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(renderJobBlock).join('') : '<p class="av-empty">No Lighthouse jobs for this room.</p>';
+            return `<div class="av-room-card"><h4>${escapeHtml(roomEntry.name || 'Room')}</h4>${jobHtml}</div>`;
+        }
+
+        function buildDailySummary(summary) {
+            const jobs = Array.from(summary.jobs.values()).sort((a, b) => a.localeCompare(b));
+            const contacts = Array.from(summary.contacts.values()).map(entry => ({
+                name: entry.name,
+                jobs: Array.from(entry.jobs.values()).sort((a, b) => a.localeCompare(b)),
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            const gear = Array.from(summary.gearTotals.values()).map(entry => ({
+                name: entry.name,
+                quantity: entry.quantity || 0,
+                sources: Array.from(entry.sources.values()).sort((a, b) => a.localeCompare(b)),
+            })).sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
+
+            const jobHtml = `<div class="av-section"><h4>Jobs</h4>${renderSimpleList(jobs, 'No AV jobs recorded.')}</div>`;
+            const contactHtml = contacts.length ? `<ul class="av-list">${contacts.map(c => `<li><div><strong>${escapeHtml(c.name)}</strong></div>${c.jobs.length ? `<div>${c.jobs.map(escapeHtml).join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV contacts recorded.</p>';
+            const contactSection = `<div class="av-section"><h4>Contacts</h4>${contactHtml}</div>`;
+            const gearHtml = gear.length ? `<ul class="av-list">${gear.map(item => `<li><div><strong>${escapeHtml(item.name)}</strong> · Qty ${formatQuantityDisplay(item.quantity)}</div>${item.sources.length ? `<div>${item.sources.map(escapeHtml).join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV gear recorded.</p>';
+            const gearSection = `<div class="av-section"><h4>Gear</h4>${gearHtml}</div>`;
+            return `<div class="av-sections">${jobHtml}${contactSection}${gearSection}</div>`;
+        }
+
+        function renderDailyPanel(panel, summary) {
+            if (!summary || !summary.avActions.length) {
+                panel.innerHTML = '<p class="av-empty">No Lighthouse AV data for this date.</p>';
+                return;
+            }
+            const selectedKey = lighthouseState.selectedRoom;
+            let rooms = [];
+            if (selectedKey && summary.byRoom.has(selectedKey)) {
+                rooms = [summary.byRoom.get(selectedKey)];
+            } else {
+                rooms = Array.from(summary.byRoom.values());
+            }
+            rooms.sort(compareRoomsForDisplay);
+            const detailHtml = rooms.length ? `<div class="av-room-grid">${rooms.map(renderRoomCard).join('')}</div>` : '<p class="av-empty">No Lighthouse AV data for this date.</p>';
+            const summaryHtml = buildDailySummary(summary);
+            panel.innerHTML = `${detailHtml}${summaryHtml}`;
+        }
+
+        function accumulateWeeklyItem(categoryAggregate, item, dateISO) {
+            const descKey = canonicalizeText(item.description);
+            const quantity = Number(item.quantity) || 0;
+            if (item.isPackageHeader) {
+                const pkgKey = `${descKey}|${quantity}`;
+                if (!categoryAggregate.packages.has(pkgKey)) {
+                    categoryAggregate.packages.set(pkgKey, { name: item.description, quantity, occurrences: new Set() });
+                }
+                categoryAggregate.packages.get(pkgKey).occurrences.add(dateISO);
+            } else {
+                if (!categoryAggregate.items.has(descKey)) {
+                    categoryAggregate.items.set(descKey, { name: item.description, quantity: 0 });
+                }
+                categoryAggregate.items.get(descKey).quantity += quantity;
+            }
+            if (Array.isArray(item.children) && item.children.length) {
+                item.children.forEach(child => accumulateWeeklyItem(categoryAggregate, child, dateISO));
+            }
+        }
+
+        function renderWeeklyCategory(categoryAggregate) {
+            const packages = Array.from(categoryAggregate.packages.values()).sort((a, b) => a.name.localeCompare(b.name));
+            const items = Array.from(categoryAggregate.items.values()).sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
+            const lines = [];
+            packages.forEach(pkg => {
+                const qty = formatQuantityDisplay(pkg.quantity || 0);
+                const occurrenceLabel = pkg.occurrences.size > 1 ? `<span class="av-meta">${pkg.occurrences.size} days</span>` : '';
+                lines.push(`<li><strong>${escapeHtml(pkg.name)}</strong><span class="av-qty">×${qty}</span>${occurrenceLabel}</li>`);
+            });
+            items.forEach(item => {
+                const qty = formatQuantityDisplay(item.quantity || 0);
+                lines.push(`<li>${escapeHtml(item.name)}<span class="av-qty">×${qty}</span></li>`);
+            });
+            const content = lines.length ? `<ul class="av-equipment depth-0">${lines.join('')}</ul>` : '<p class="av-empty">No equipment totals.</p>';
+            return `<div class="av-category"><h5>${escapeHtml(categoryAggregate.name || 'Equipment')}</h5>${content}</div>`;
+        }
+
+        function buildWeeklySummary(aggregate) {
+            const jobs = Array.from(aggregate.jobs.values()).sort((a, b) => a.localeCompare(b));
+            const contacts = Array.from(aggregate.contacts.values()).map(entry => ({
+                name: entry.name,
+                jobs: Array.from(entry.jobs.values()).sort((a, b) => a.localeCompare(b)),
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            const gear = Array.from(aggregate.gear.values()).map(entry => ({
+                name: entry.name,
+                quantity: entry.quantity || 0,
+                sources: Array.from(entry.sources.values()).sort((a, b) => a.localeCompare(b)),
+            })).filter(entry => !canonicalizeText(entry.name).includes('internet'))
+              .sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
+            const jobSection = `<div class="av-section"><h4>Jobs</h4>${renderSimpleList(jobs, 'No AV jobs synced this week.')}</div>`;
+            const contactHtml = contacts.length ? `<ul class="av-list">${contacts.map(c => `<li><div><strong>${escapeHtml(c.name)}</strong></div>${c.jobs.length ? `<div>${c.jobs.map(escapeHtml).join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV contacts synced this week.</p>';
+            const contactSection = `<div class="av-section"><h4>Contacts</h4>${contactHtml}</div>`;
+            const gearHtml = gear.length ? `<ul class="av-list">${gear.map(item => `<li><div><strong>${escapeHtml(item.name)}</strong> · Qty ${formatQuantityDisplay(item.quantity)}</div>${item.sources.length ? `<div>${item.sources.map(escapeHtml).join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV gear synced this week.</p>';
+            const gearSection = `<div class="av-section"><h4>Gear Totals</h4>${gearHtml}</div>`;
+            return `<div class="av-sections">${gearSection}${contactSection}${jobSection}</div>`;
+        }
+
+        function renderWeeklyPanel(panel, weekDates) {
+            const aggregate = {
+                categories: new Map(),
+                gear: new Map(),
+                contacts: new Map(),
+                jobs: new Set(),
+                missing: [],
+            };
+            weekDates.forEach(dateISO => {
+                const summary = getLighthouseSummary(dateISO);
+                if (!summary) {
+                    aggregate.missing.push(dateISO);
+                    return;
+                }
+                summary.jobs.forEach(job => aggregate.jobs.add(job));
+                summary.contacts.forEach((value, key) => {
+                    if (!aggregate.contacts.has(key)) {
+                        aggregate.contacts.set(key, { name: value.name, jobs: new Set() });
+                    }
+                    value.jobs.forEach(jobName => aggregate.contacts.get(key).jobs.add(jobName));
+                });
+                summary.gearTotals.forEach((value, key) => {
+                    if (!aggregate.gear.has(key)) {
+                        aggregate.gear.set(key, { name: value.name, quantity: 0, sources: new Set() });
+                    }
+                    aggregate.gear.get(key).quantity += value.quantity || 0;
+                    value.sources.forEach(jobName => aggregate.gear.get(key).sources.add(jobName));
+                });
+                summary.byRoom.forEach(roomEntry => {
+                    roomEntry.jobs?.forEach(jobEntry => {
+                        jobEntry.categories?.forEach(categoryEntry => {
+                            const catKey = canonicalizeText(categoryEntry.name) || `category-${aggregate.categories.size}`;
+                            if (!aggregate.categories.has(catKey)) {
+                                aggregate.categories.set(catKey, { name: categoryEntry.name, packages: new Map(), items: new Map() });
+                            }
+                            const catAggregate = aggregate.categories.get(catKey);
+                            (categoryEntry.items || []).forEach(item => accumulateWeeklyItem(catAggregate, item, dateISO));
+                        });
+                    });
+                });
+            });
+
+            const categoryBlocks = Array.from(aggregate.categories.values())
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                .map(renderWeeklyCategory)
+                .join('');
+            const detailHtml = categoryBlocks ? `<div class="av-room-grid">${categoryBlocks}</div>` : '<p class="av-empty">No Lighthouse AV equipment totals for this week.</p>';
+            const summaryHtml = buildWeeklySummary(aggregate);
+            const missingNotice = aggregate.missing.length ? `<p class="av-empty">No Lighthouse data for: ${aggregate.missing.map(date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ')}</p>` : '';
+            panel.innerHTML = `${detailHtml}${summaryHtml}${missingNotice}`;
+            const syncedCount = weekDates.length - aggregate.missing.length;
+            if (syncedCount === weekDates.length) {
+                setLighthousePanelStatus('Synced for all 7 days', 'success');
+            } else if (syncedCount === 0) {
+                setLighthousePanelStatus('No Lighthouse data for this week', null);
+            } else {
+                setLighthousePanelStatus(`Synced for ${syncedCount} of 7 days`, 'syncing');
+            }
+        }
+
+        async function refreshLighthousePanel() {
+            const panel = document.getElementById('lighthousePanelContent');
+            if (!panel) return;
+            if (viewMode === 'week') {
+                const ws = weekStart(currentDate);
+                const weekDates = [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(ws);
+                    d.setDate(ws.getDate() + i);
+                    weekDates.push(toLocalISODate(d));
+                }
+                renderWeeklyPanel(panel, weekDates);
+                return;
+            }
+
+            const dateISO = toLocalISODate(currentDate);
+            const summary = getLighthouseSummary(dateISO);
+            if (!summary) {
+                panel.innerHTML = `<p class="av-empty">Sync Lighthouse to view AV details for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</p>`;
+                setLighthousePanelStatus(`No Lighthouse data for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, null);
+                return;
+            }
+            if (!summary.avActions.length) {
+                panel.innerHTML = `<p class="av-empty">No Lighthouse jobs found for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</p>`;
+                setLighthousePanelStatus(`No Lighthouse jobs for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'syncing');
+                return;
+            }
+            renderDailyPanel(panel, summary);
+            setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
+        }
+
+        async function syncLighthouse(dateISO) {
+            if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
+                alert('Lighthouse sync is only available in the EventScope desktop app.');
+                return null;
+            }
+            console.log('[Lighthouse] Sync requested for', dateISO);
+            setLighthouseStatus('Syncing…', 'syncing');
+            try {
+                const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
+                const summary = await saveLighthousePayload(dateISO, payload);
+                if (summary.avActions.length) {
+                    setLighthouseStatus('Synced', 'success');
+                    setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
+                } else {
+                    setLighthouseStatus('Synced (no jobs)', 'syncing');
+                    setLighthousePanelStatus(`No Lighthouse jobs for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'syncing');
+                }
+                await refreshLighthousePanel();
+                redraw();
+                console.log('[Lighthouse] Sync completed for', dateISO);
+                return summary;
+            } catch (err) {
+                console.error('Unable to sync Lighthouse', err);
+                setLighthouseStatus('Sync failed', 'error');
+                setLighthousePanelStatus('Lighthouse sync failed', 'error');
+                alert('Unable to sync Lighthouse. Please try again.');
+                return null;
+            }
+        }
+
         function parseDayOfEvent(str) {
             if (!str) return null;
             let d = new Date(str);
@@ -1260,10 +2590,6 @@
             if (mod === "PM" && h < 12) h += 12;
             if (mod === "AM" && h === 12) h = 0;
             return [h, m];
-        }
-
-        function toLocalISODate(d) {
-            return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
         }
 
         function sameDay(a, b) {
@@ -1293,7 +2619,8 @@
             x.setDate(x.getDate() - day);
             x.setHours(0, 0, 0, 0);
             return x;
-        } // Sunday 00:00
+        }
+
         function weekEnd(d) {
             const ws = weekStart(d);
             const we = new Date(ws);
@@ -1379,6 +2706,20 @@
             }
             return out;
         }
+        function toLocalISODate(value) {
+            if (!value) {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            }
+            const date = value instanceof Date ? value : new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                const fallback = new Date();
+                console.warn('Invalid date passed to toLocalISODate', value);
+                return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, '0')}-${String(fallback.getDate()).padStart(2, '0')}`;
+            }
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+
         // Convert "YYYY-MM-DD" into a Date at LOCAL midnight
         function fromISODateLocal(iso) {
             const [y, m, d] = iso.split("-").map(Number);
@@ -1460,6 +2801,7 @@
             const groups = {};
             let dataMin = null,
                 dataMax = null;
+            const rowMeta = [];
 
             const source = applySearchFilter(allEvents || []); // <-- search filter
             source.forEach(ev => {
@@ -1571,22 +2913,26 @@
                 Object.values(groups).forEach(g => {
                     if (g.base === roomBase && sameDay(g.min, chosen)) {
                         usedBases.add(roomBase);
-                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), "", g.min, g.max]);
+                        const highlight = shouldHighlightRoomForDate(chosen, g.company, g.base);
+                        const style = highlight ? LIGHTHOUSE_HIGHLIGHT_STYLE : "";
+                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), style, g.min, g.max]);
+                        rowMeta.push({ base: g.base, company: g.company || "", label: g.roomLabel });
                     }
                 });
                 if (showAllRooms && !usedBases.has(roomBase)) {
                     const base = dataMin || new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 8, 0);
                     rows.push([roomBase, "", "", "color:#E5E7EB;", base, new Date(base.getTime() + 60000)]);
+                    rowMeta.push(null);
                 }
             });
             if (!rows.length) {
                 container.innerHTML = "<p style='color:#c00; margin:12px;'>No events found for this date.</p>";
+                refreshLighthousePanel();
                 return;
             }
 
             dt.addRows(rows);
 
-            // full-day window
             const startHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 0, 0, 0, 0);
             const endHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 23, 59, 59, 999);
             const ticks = [];
@@ -1637,10 +2983,41 @@
                     }
                 }
             });
+
+            google.visualization.events.addListener(chart, "select", () => {
+                const selection = chart.getSelection();
+                if (!selection.length) {
+                    lighthouseState.selectedRoom = null;
+                    lighthouseState.selectedCompany = null;
+                } else {
+                    const meta = rowMeta[selection[0].row];
+                    if (meta) {
+                        lighthouseState.selectedRoom = canonicalizeRoomKey(meta.base);
+                        lighthouseState.selectedCompany = canonicalizeText(meta.company);
+                    } else {
+                        lighthouseState.selectedRoom = null;
+                        lighthouseState.selectedCompany = null;
+                    }
+                }
+                refreshLighthousePanel();
+            });
+
+            if (lighthouseState.selectedRoom) {
+                const targetRoom = lighthouseState.selectedRoom;
+                const targetCompany = lighthouseState.selectedCompany;
+                const index = rowMeta.findIndex(meta => meta && canonicalizeRoomKey(meta.base) === targetRoom && canonicalizeText(meta.company) === targetCompany);
+                if (index >= 0) {
+                    chart.setSelection([{ row: index }]);
+                }
+            } else {
+                chart.setSelection([]);
+            }
+
+            refreshLighthousePanel();
         }
 
-        /* Weekly: Sun→Sat columns always visible; per company, add day segments (filled when present) */
         function drawWeekly(anyDateISO) {
+
             const container = document.getElementById("timeline");
             const chart = new google.visualization.Timeline(container);
             const dt = new google.visualization.DataTable();
@@ -1758,7 +3135,10 @@
                     const roomsList = has ? Array.from(perCompany.get(company).get(dayIso)).sort() : [];
                     const segStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
                     const segEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-                    const style = has ? "" : "color:#E5E7EB;";
+                    let style = has ? "" : "color:#E5E7EB;";
+                    if (has && shouldHighlightWeekly(company, dayIso)) {
+                        style = LIGHTHOUSE_HIGHLIGHT_STYLE;
+                    }
 
                     const weekRange = `${ws.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${we.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
                     const span = companySpans.get(company);
@@ -1782,6 +3162,7 @@
 
             if (!rows.length) {
                 container.innerHTML = "<p style='color:#c00; margin:12px;'>No companies intersect this week.</p>";
+                refreshLighthousePanel();
                 return;
             }
             dt.addRows(rows);
@@ -1837,6 +3218,8 @@
                     }
                 }
             });
+
+            refreshLighthousePanel();
         }
 
         /* ========= CHANGE LOG =========
@@ -2252,12 +3635,15 @@
             if (reportA.length && reportB.length) {
                 generateChangeLog(reportA, reportB);
             }
+            console.log('[Reports] Ingested', filtered.length, 'rows for', target);
         }
 
         async function processPdfUpload(file, target) {
             if (!file) return;
+            console.log('[Reports] Processing upload', file.name, 'for', target);
             try {
                 const rows = await loadPDF(file, target);
+                console.log('[Reports] Parsed', rows.length, 'rows from', file.name);
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
                 }
@@ -2444,6 +3830,46 @@
             const selectA = document.getElementById("reportHistoryA");
             const selectB = document.getElementById("reportHistoryB");
 
+            const lighthouseButton = document.getElementById("lighthouseSyncBtn");
+            const highlightBtn = document.getElementById("highlightAVBtn");
+
+            if (lighthouseButton) {
+                lighthouseButton.addEventListener("click", async () => {
+                    const targetDate = toLocalISODate(currentDate);
+                    if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
+                        alert('Lighthouse sync is only available in the EventScope desktop app.');
+                        return;
+                    }
+                    await syncLighthouse(targetDate);
+                });
+                if (!LIGHTHOUSE_ENABLED) {
+                    lighthouseButton.disabled = true;
+                    lighthouseButton.title = "Available in the desktop app";
+                }
+            }
+
+            if (highlightBtn) {
+                highlightBtn.addEventListener("click", () => {
+                    lighthouseState.highlightActive = !lighthouseState.highlightActive;
+                    highlightBtn.classList.toggle("toggled", lighthouseState.highlightActive);
+                    highlightBtn.textContent = lighthouseState.highlightActive ? "Highlight AV: On" : "Highlight AV";
+                    redraw();
+                });
+                highlightBtn.classList.toggle("toggled", lighthouseState.highlightActive);
+                highlightBtn.textContent = lighthouseState.highlightActive ? "Highlight AV: On" : "Highlight AV";
+                if (!LIGHTHOUSE_ENABLED) {
+                    highlightBtn.disabled = true;
+                    highlightBtn.title = "Sync Lighthouse in the desktop app to enable highlighting.";
+                }
+            }
+
+            if (!LIGHTHOUSE_ENABLED) {
+                setLighthouseStatus('Desktop app required', 'error');
+                setLighthousePanelStatus('Lighthouse sync available in desktop app', null);
+            } else {
+                setLighthouseStatus('Ready', null);
+            }
+
             if (selectA) {
                 selectA.addEventListener("change", async () => {
                     const option = selectA.options[selectA.selectedIndex];
@@ -2479,6 +3905,7 @@
             }
 
             await initializeReportHistory();
+            await loadStoredLighthouseData();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {
@@ -2486,6 +3913,10 @@
                     document.querySelectorAll("#viewMode button").forEach(b => b.classList.remove("active"));
                     btn.classList.add("active");
                     viewMode = btn.dataset.mode;
+                    if (viewMode === "week") {
+                        lighthouseState.selectedRoom = null;
+                        lighthouseState.selectedCompany = null;
+                    }
                     syncDateUI(currentDate);
                     redraw();
                 });
@@ -2533,6 +3964,7 @@
 
             // initial
             syncDateUI(currentDate);
+            refreshLighthousePanel();
             google.charts.setOnLoadCallback(() => redraw());
         }
         window.addEventListener("resize", () => redraw());

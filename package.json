@@ -1,0 +1,29 @@
+{
+  "name": "eventscope",
+  "version": "1.2.0",
+  "description": "EventScope desktop app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.eventscope.app",
+    "productName": "EventScope",
+    "files": [
+      "EventScope.html",
+      "main.js",
+      "preload.js"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  },
+  "devDependencies": {
+    "electron": "^25.9.0",
+    "electron-builder": "^24.6.4"
+  }
+}

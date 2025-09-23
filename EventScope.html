@@ -2633,8 +2633,19 @@
             eventDates.forEach(date => container.dates.add(date));
             const singleDates = Array.from(container.dates.values());
             const ranges = container.ranges.slice();
-            const hasDateInfo = singleDates.length > 0 || ranges.length > 0;
-            if (!targetISO) {
+            const flowsheetDate = firstISODateFromCandidates([
+                roomAction?.flowsheetDate,
+                roomAction?.flowDate,
+                roomAction?.date,
+                roomAction?.Day,
+                job?.flowsheetDate,
+                job?.flowDate,
+                job?.date,
+                job?.Day,
+            ]);
+            const normalizedTarget = targetISO || null;
+            const hasDateInfo = Boolean(flowsheetDate) || singleDates.length > 0 || ranges.length > 0;
+            if (!normalizedTarget) {
                 return {
                     matches: true,
                     baseMatch: true,
@@ -2647,33 +2658,51 @@
                     eventDates,
                     matchedEvents: [],
                     span: orderSpan,
+                    flowsheetDate,
+                    flowsheetMatch: Boolean(flowsheetDate),
+                    usedFallback: false,
                 };
             }
             let baseMatch = false;
             let rangeMatch = false;
+            let flowsheetMatch = false;
+            let usedFallback = false;
+            const fallbackAllowed = !flowsheetDate;
             const matchedDates = new Set();
-            singleDates.forEach(date => {
-                if (date === targetISO) {
+            if (flowsheetDate) {
+                flowsheetMatch = flowsheetDate === normalizedTarget;
+                if (flowsheetMatch) {
                     baseMatch = true;
-                    matchedDates.add(date);
-                }
-            });
-            if (orderSpan.start || orderSpan.end) {
-                if (isTargetWithinRange(targetISO, orderSpan)) {
-                    baseMatch = true;
-                    rangeMatch = true;
-                    matchedDates.add(orderSpan.start || orderSpan.end || targetISO);
+                    matchedDates.add(flowsheetDate);
                 }
             }
-            ranges.forEach(range => {
-                if (!range) return;
-                if (isTargetWithinRange(targetISO, range)) {
-                    baseMatch = true;
-                    if (range.source === 'order') rangeMatch = true;
-                    matchedDates.add(range.start || range.end || targetISO);
+            if (fallbackAllowed) {
+                singleDates.forEach(date => {
+                    if (date === normalizedTarget) {
+                        baseMatch = true;
+                        usedFallback = true;
+                        matchedDates.add(date);
+                    }
+                });
+                if (orderSpan.start || orderSpan.end) {
+                    if (isTargetWithinRange(normalizedTarget, orderSpan)) {
+                        baseMatch = true;
+                        usedFallback = true;
+                        rangeMatch = true;
+                        matchedDates.add(orderSpan.start || orderSpan.end || normalizedTarget);
+                    }
                 }
-            });
-            const matchedEvents = eventDates.filter(date => date === targetISO);
+                ranges.forEach(range => {
+                    if (!range) return;
+                    if (isTargetWithinRange(normalizedTarget, range)) {
+                        baseMatch = true;
+                        usedFallback = true;
+                        if (range.source === 'order') rangeMatch = true;
+                        matchedDates.add(range.start || range.end || normalizedTarget);
+                    }
+                });
+            }
+            const matchedEvents = eventDates.filter(date => date === normalizedTarget);
             const hasEventDates = eventDates.length > 0;
             const eventMatch = matchedEvents.length > 0;
             if (eventMatch) {
@@ -2698,6 +2727,9 @@
                 eventDates,
                 matchedEvents,
                 span: orderSpan,
+                flowsheetDate,
+                flowsheetMatch,
+                usedFallback,
             };
         }
 
@@ -2738,10 +2770,19 @@
                     const jobNameResolved = extractJob(job) || extractJob(roomAction) || '';
                     const logSpanStart = matchInfo.span?.start || (matchInfo.ranges?.[0]?.start || null);
                     const logSpanEnd = matchInfo.span?.end || (matchInfo.ranges?.[0]?.end || null);
-                    const logStatus = matchInfo.matches ? 'MATCHED' : 'SKIPPED';
+                    const logStatus = matchInfo.matches ? 'INCLUDED' : 'EXCLUDED';
+                    const jobActionId = job?.jobActionId ?? roomAction?.jobActionId ?? job?.id ?? roomAction?.id ?? null;
+                    const orderName = job?.orderName || roomAction?.orderName || jobNameResolved || '';
+                    const flowsheetDateDisplay = matchInfo.flowsheetDate || parseDateValueToISO(roomAction?.flowsheetDate) || null;
                     if (loggingEnabled) {
-                        const eventLabel = (matchInfo.eventDates?.length ? ` Events: ${matchInfo.eventDates.join(', ')}${matchInfo.eventMatch ? '' : ' (none on requested date)'}` : ' No flowsheet events.');
-                        console.log(`[Lighthouse] Job "${jobNameResolved || 'Unnamed Job'}" spans ${logSpanStart || 'unknown'} → ${logSpanEnd || 'unknown'}. Requested ${dateISO} → ${logStatus}.${eventLabel}`);
+                        const eventSummary = matchInfo.eventDates?.length
+                            ? `events=${matchInfo.eventDates.join(', ')}${matchInfo.eventMatch ? '' : ' (no match on requested date)'}`
+                            : 'events=none';
+                        console.log(
+                            `[Lighthouse] Job ${jobActionId ?? 'unknown'} "${orderName || jobNameResolved || 'Unnamed Job'}" ` +
+                            `flowsheetDate=${flowsheetDateDisplay || 'none'} requested=${dateISO} → ${logStatus}. ` +
+                            `Span ${logSpanStart || 'unknown'} → ${logSpanEnd || 'unknown'}, ${eventSummary}.`
+                        );
                     }
                     if (logTotals) {
                         logTotals.total += 1;
@@ -2753,6 +2794,7 @@
                                 spanStart: logSpanStart || null,
                                 spanEnd: logSpanEnd || null,
                                 eventDates: matchInfo.eventDates || [],
+                                flowsheetDate: matchInfo.flowsheetDate || null,
                             });
                         }
                     }
@@ -2767,6 +2809,9 @@
                             rangeMatch: matchInfo.rangeMatch,
                             eventMatch: matchInfo.eventMatch,
                             eventDates: matchInfo.eventDates || [],
+                            flowsheetDate: matchInfo.flowsheetDate || null,
+                            flowsheetMatch: matchInfo.flowsheetMatch || false,
+                            usedFallback: matchInfo.usedFallback || false,
                         });
                     }
                     if (!matchInfo.matches) {

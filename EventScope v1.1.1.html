@@ -1262,7 +1262,24 @@
             return [h, m];
         }
 
-        function toLocalISODate(d) {
+        function toLocalISODate(value) {
+            if (value == null) return "";
+
+            let d = null;
+            if (value instanceof Date) {
+                d = new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
+            } else if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+                const [y, m, day] = value.split("-").map(Number);
+                d = new Date(y, m - 1, day, 0, 0, 0, 0);
+            } else {
+                const coerced = new Date(value);
+                if (!Number.isNaN(coerced.getTime())) {
+                    d = new Date(coerced.getFullYear(), coerced.getMonth(), coerced.getDate(), 0, 0, 0, 0);
+                }
+            }
+
+            if (!d || Number.isNaN(d.getTime())) return "";
+
             return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
         }
 

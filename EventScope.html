@@ -124,6 +124,120 @@
             border: 1px solid var(--border);
         }
 
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn.toggled {
+            background: #3cc47c;
+            color: #0f1f3a;
+        }
+
+        .btn.secondary.toggled {
+            border-color: #3cc47c;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #223366;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: .8rem;
+            color: #cfe0ff;
+        }
+
+        .status-pill.success {
+            color: #22c55e;
+            border-color: rgba(34, 197, 94, 0.35);
+        }
+
+        .status-pill.error {
+            color: #f87171;
+            border-color: rgba(248, 113, 113, 0.45);
+        }
+
+        .status-pill.syncing {
+            color: #facc15;
+            border-color: rgba(250, 204, 21, 0.45);
+        }
+
+        .lighthouse-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .av-panel {
+            margin-top: 16px;
+            background: #17264d;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .av-panel h3 {
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        .av-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .av-panel-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .av-sections {
+            display: grid;
+            gap: 14px;
+        }
+
+        .av-section {
+            background: #1d2f5a;
+            border: 1px solid rgba(57, 76, 122, 0.7);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .av-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+        }
+
+        .av-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .av-list li {
+            background: rgba(20, 32, 66, 0.8);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: .9rem;
+        }
+
+        .av-empty {
+            opacity: .75;
+            font-size: .9rem;
+        }
+
         .spacer {
             flex: 1
         }
@@ -663,6 +777,10 @@
                         <option value="">Select a saved report…</option>
                     </select>
                 </div>
+                <div class="group lighthouse-group">
+                    <button class="btn" id="lighthouseSyncBtn">Lighthouse Sync</button>
+                    <span class="status-pill" id="lighthouseStatus">Not connected</span>
+                </div>
             </div>
         </div>
 
@@ -792,6 +910,18 @@
                         <p style="color:#c00; margin:12px;">No events found for this date.</p>
                     </div>
                 </div>
+                <div class="av-panel" id="lighthousePanel">
+                    <div class="av-panel-header">
+                        <h3>Audio / Visual Actions</h3>
+                        <div class="av-panel-controls">
+                            <button class="btn secondary" id="highlightAVBtn">Highlight AV</button>
+                            <span class="status-pill" id="lighthousePanelStatus">Sync Lighthouse to view AV data</span>
+                        </div>
+                    </div>
+                    <div id="lighthousePanelContent">
+                        <p class="av-empty">No Lighthouse data loaded for this date.</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -833,6 +963,36 @@
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
 
+        const LIGHTHOUSE_BRIDGE = window.desktop?.lighthouse ?? null;
+        const LIGHTHOUSE_ENABLED = Boolean(LIGHTHOUSE_BRIDGE?.getActions);
+        const LIGHTHOUSE_STATUS_CLASSES = ["success", "error", "syncing"];
+        const LIGHTHOUSE_HIGHLIGHT_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
+
+        const ROOM_ORDER = [
+            "Whitley Ballroom", "Whitley Prefunction",
+            "Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII",
+            "Plaza Ballroom", "Plaza Prefunction", "Plaza I", "Plaza II", "Plaza III",
+            "Gallery", "Gallery Prefunction", "Gallery I", "Gallery II",
+            "Legacy Ballroom", "Legacy Prefunction", "Legacy I", "Legacy II",
+            "Ambassador", "Attache", "Attache Charge", "Boardroom", "Charge", "Consulate",
+            "Delegate", "Diplomat", "Director's Room", "Envoy", "The Founders Room"
+        ];
+        const SUBORDER = {
+            "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
+            "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
+            "Legacy Ballroom": ["Legacy I", "Legacy II"],
+            "Gallery": ["Gallery I", "Gallery II"]
+        };
+        const PARENT_MAP = {};
+        Object.entries(SUBORDER).forEach(([parent, subs]) => subs.forEach(sub => PARENT_MAP[sub] = parent));
+
+        const lighthouseState = {
+            byDate: new Map(),
+            selectedRoom: null,
+            selectedCompany: null,
+            highlightActive: false,
+        };
+
         /* ========= REPORT HISTORY (IndexedDB) ========= */
         const REPORT_HISTORY_LIMIT = 10;
         const reportDB = window.Dexie ? new Dexie("eventscopeReports") : null;
@@ -860,6 +1020,13 @@
                     delete entry.fileTimestamp;
                     delete entry.rows;
                 });
+            });
+        }
+
+        const lighthouseDB = window.Dexie ? new Dexie("eventscopeLighthouse") : null;
+        if (lighthouseDB) {
+            lighthouseDB.version(1).stores({
+                actions: "date"
             });
         }
 
@@ -1222,26 +1389,522 @@
             return `${hour}:${minute} ${mod}`;
         }
 
-        /* ========= ROOM ORDERING ========= */
-        const ROOM_ORDER = [
-            "Whitley Ballroom", "Whitley Prefunction",
-            "Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII",
-            "Plaza Ballroom", "Plaza Prefunction", "Plaza I", "Plaza II", "Plaza III",
-            "Gallery", "Gallery Prefunction", "Gallery I", "Gallery II",
-            "Legacy Ballroom", "Legacy Prefunction", "Legacy I", "Legacy II",
-            "Ambassador", "Attache", "Attache Charge", "Boardroom", "Charge", "Consulate",
-            "Delegate", "Diplomat", "Director's Room", "Envoy", "The Founders Room"
-        ];
-        const SUBORDER = {
-            "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
-            "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
-            "Legacy Ballroom": ["Legacy I", "Legacy II"],
-            "Gallery": ["Gallery I", "Gallery II"]
-        };
-        const PARENT_MAP = {};
-        Object.entries(SUBORDER).forEach(([p, subs]) => subs.forEach(s => PARENT_MAP[s] = p));
+        /* ========= LIGHTHOUSE HELPERS ========= */
+        function updateStatusPill(el, text, type) {
+            if (!el) return;
+            if (typeof text === "string") {
+                el.textContent = text;
+            }
+            LIGHTHOUSE_STATUS_CLASSES.forEach(cls => el.classList.remove(cls));
+            if (type && LIGHTHOUSE_STATUS_CLASSES.includes(type)) {
+                el.classList.add(type);
+            }
+        }
 
-        /* ========= UTILS ========= */
+        function setLighthouseStatus(text, type) {
+            const el = document.getElementById("lighthouseStatus");
+            updateStatusPill(el, text, type);
+        }
+
+        function setLighthousePanelStatus(text, type) {
+            const el = document.getElementById("lighthousePanelStatus");
+            updateStatusPill(el, text, type);
+        }
+
+        function canonicalizeText(value) {
+            return (value ?? "").toString().trim().toLowerCase().replace(/\s+/g, " " );
+        }
+
+        function canonicalizeRoomKey(value) {
+            return canonicalizeText(value).replace(/[^a-z0-9 ]+/g, "");
+        }
+
+        function listFromPayload(payload) {
+            if (!payload) return [];
+            if (Array.isArray(payload)) return payload;
+            const preferred = ["actions", "value", "data", "results", "items"];
+            for (const key of preferred) {
+                if (Array.isArray(payload?.[key])) return payload[key];
+            }
+            if (Array.isArray(payload?.data?.items)) return payload.data.items;
+            if (Array.isArray(payload?.data?.results)) return payload.data.results;
+            return [];
+        }
+
+        function parseActionDate(action) {
+            const candidates = [
+                "actionDate", "ActionDate", "date", "Date", "dueDate", "DueDate",
+                "startDate", "StartDate", "start", "Start", "eventDate", "EventDate",
+                "dayOfEvent", "DayOfEvent", "scheduleDate", "ScheduleDate"
+            ];
+            for (const key of candidates) {
+                const raw = action?.[key];
+                if (!raw) continue;
+                const dt = new Date(raw);
+                if (!Number.isNaN(dt)) return dt;
+            }
+            const nested = [
+                action?.schedule?.startDate,
+                action?.timeFrame?.start,
+                action?.date?.start,
+                action?.window?.start
+            ];
+            for (const raw of nested) {
+                if (!raw) continue;
+                const dt = new Date(raw);
+                if (!Number.isNaN(dt)) return dt;
+            }
+            return null;
+        }
+
+        function extractCompany(action) {
+            const candidates = [
+                action?.companyName, action?.company?.name, action?.customerName, action?.customer?.name,
+                action?.accountName, action?.account?.name, action?.job?.accountName, action?.job?.companyName,
+                action?.orderName, action?.projectName, action?.eventName, action?.functionName, action?.jobName,
+                action?.organizationName, action?.clientName
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return action?.job?.name || "";
+        }
+
+        function extractDepartment(action) {
+            const candidates = [
+                action?.department, action?.departmentName, action?.resourceDepartment, action?.departmentDescription,
+                action?.Department, action?.ResourceDepartment, action?.categoryDepartment
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractCategory(action) {
+            const candidates = [
+                action?.category, action?.categoryName, action?.itemCategory, action?.resourceCategory,
+                action?.productCategory, action?.type, action?.Category
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractItem(action) {
+            const candidates = [
+                action?.itemName, action?.resourceName, action?.productName, action?.description, action?.name,
+                action?.ItemName, action?.ResourceName, action?.ProductName
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            if (typeof action === "string") return action;
+            return "";
+        }
+
+        function extractJob(action) {
+            const candidates = [
+                action?.jobName, action?.job?.name, action?.orderName, action?.projectName,
+                action?.eventName, action?.functionName, action?.bookingName
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractContact(action) {
+            const candidates = [
+                action?.contactName, action?.primaryContact, action?.customerContact, action?.ownerName,
+                action?.coordinatorName, action?.eventCoordinator, action?.contact?.name
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return "";
+        }
+
+        function extractQuantity(action) {
+            const candidates = [
+                action?.quantity, action?.qty, action?.qtyOrdered, action?.orderedQuantity, action?.numberOrdered,
+                action?.count, action?.Quantity
+            ];
+            for (const value of candidates) {
+                const num = Number(value);
+                if (Number.isFinite(num) && num > 0) return num;
+            }
+            return 1;
+        }
+
+        function deriveRoomsFromAction(action) {
+            const buckets = [
+                action?.room, action?.roomName, action?.room?.name, action?.space, action?.spaceName, action?.space?.name,
+                action?.location, action?.locationName, action?.functionSpace, action?.FunctionSpace, action?.meetingRoom,
+                action?.meetingSpace, action?.venueRoom
+            ];
+            const arrayBuckets = [
+                action?.rooms, action?.spaces, action?.locations
+            ];
+            const values = [];
+            buckets.forEach(val => {
+                if (typeof val === "string") values.push(val);
+            });
+            arrayBuckets.forEach(arr => {
+                if (Array.isArray(arr)) {
+                    arr.forEach(entry => {
+                        if (typeof entry === "string") values.push(entry);
+                        else if (entry?.name) values.push(entry.name);
+                    });
+                }
+            });
+            const result = new Set();
+            values.forEach(raw => {
+                const cleaned = String(raw).trim();
+                if (!cleaned) return;
+                const normalized = normalizeRooms(cleaned);
+                if (normalized.length) {
+                    normalized.forEach(n => {
+                        const base = PARENT_MAP[n] || n;
+                        result.add(base);
+                    });
+                } else {
+                    const match = ROOM_ORDER.find(room => room.toLowerCase() === cleaned.toLowerCase());
+                    result.add(match || cleaned);
+                }
+            });
+            return Array.from(result);
+        }
+
+        function roomDisplayNameFromKey(key) {
+            if (!key) return "";
+            const match = ROOM_ORDER.find(room => canonicalizeRoomKey(room) === key);
+            return match || key;
+        }
+
+        function isAudioVisualMatch(dept, category, item) {
+            const tokens = [dept, category, item]
+                .filter(Boolean)
+                .map(val => val.toString().toLowerCase());
+            if (!tokens.length) return false;
+            if (tokens.some(t => t.includes("internet"))) return false;
+            return tokens.some(t => /(audio|visual|a\/v|av|tech|technology|lighting|sound|projection|video|stage|rigging)/i.test(t));
+        }
+
+        function computeLighthouseSummaryForDate(dateISO, payload) {
+            const list = listFromPayload(payload);
+            const summary = {
+                date: dateISO,
+                raw: payload,
+                actions: [],
+                avActions: [],
+                byCompany: new Map(),
+                byRoom: new Map(),
+                gearTotals: new Map(),
+                contacts: new Map(),
+                jobs: new Set(),
+            };
+
+            list.forEach(action => {
+                const actionDate = parseActionDate(action);
+                if (actionDate) {
+                    const iso = toLocalISODate(actionDate);
+                    if (iso !== dateISO) return;
+                }
+                const department = extractDepartment(action);
+                const category = extractCategory(action);
+                const item = extractItem(action);
+                const job = extractJob(action);
+                const company = extractCompany(action);
+                const contact = extractContact(action);
+                const quantity = extractQuantity(action);
+                const rooms = deriveRoomsFromAction(action);
+                const isAV = isAudioVisualMatch(department, category, item);
+                const decorated = {
+                    original: action,
+                    actionDate,
+                    department,
+                    category,
+                    itemName: item,
+                    job,
+                    company,
+                    contact,
+                    quantity,
+                    rooms,
+                    isAV,
+                };
+                summary.actions.push(decorated);
+                if (!isAV) return;
+
+                summary.avActions.push(decorated);
+                if (job) summary.jobs.add(job);
+                if (contact) {
+                    const contactKey = canonicalizeText(contact);
+                    if (!summary.contacts.has(contactKey)) {
+                        summary.contacts.set(contactKey, { name: contact, jobs: new Set() });
+                    }
+                    if (job) summary.contacts.get(contactKey).jobs.add(job);
+                }
+
+                const companyKey = canonicalizeText(company);
+                if (!summary.byCompany.has(companyKey)) {
+                    summary.byCompany.set(companyKey, { name: company || "", rooms: new Map(), actions: [] });
+                }
+                const companyEntry = summary.byCompany.get(companyKey);
+                companyEntry.actions.push(decorated);
+
+                const roomTargets = rooms.length ? rooms : [""];
+                roomTargets.forEach(roomName => {
+                    const key = canonicalizeRoomKey(roomName);
+                    if (!key) return;
+                    if (!companyEntry.rooms.has(key)) {
+                        companyEntry.rooms.set(key, { name: roomDisplayNameFromKey(key), actions: [] });
+                    }
+                    companyEntry.rooms.get(key).actions.push(decorated);
+                    if (!summary.byRoom.has(key)) {
+                        summary.byRoom.set(key, { name: roomDisplayNameFromKey(key), actions: [] });
+                    }
+                    summary.byRoom.get(key).actions.push(decorated);
+                });
+
+                const itemKey = canonicalizeText(item);
+                if (itemKey && !itemKey.includes("internet")) {
+                    if (!summary.gearTotals.has(itemKey)) {
+                        summary.gearTotals.set(itemKey, { name: item || "Item", quantity: 0, sources: new Set() });
+                    }
+                    const gearEntry = summary.gearTotals.get(itemKey);
+                    gearEntry.quantity += quantity || 0;
+                    if (job) gearEntry.sources.add(job);
+                }
+            });
+
+            return summary;
+        }
+
+        async function loadStoredLighthouseData() {
+            if (!lighthouseDB) return;
+            try {
+                const rows = await lighthouseDB.actions.toArray();
+                rows.forEach(entry => {
+                    try {
+                        const summary = computeLighthouseSummaryForDate(entry.date, entry.payload);
+                        lighthouseState.byDate.set(entry.date, summary);
+                    } catch (err) {
+                        console.error("Failed to hydrate Lighthouse cache", err);
+                    }
+                });
+            } catch (err) {
+                console.error("Unable to read Lighthouse cache", err);
+            }
+        }
+
+        async function saveLighthousePayload(dateISO, payload) {
+            const summary = computeLighthouseSummaryForDate(dateISO, payload);
+            lighthouseState.byDate.set(dateISO, summary);
+            if (lighthouseDB) {
+                try {
+                    await lighthouseDB.actions.put({ date: dateISO, payload, savedAt: new Date().toISOString() });
+                } catch (err) {
+                    console.error("Unable to persist Lighthouse payload", err);
+                }
+            }
+            console.log('[Lighthouse] Payload stored for', dateISO, 'with', summary.actions.length, 'actions');
+            return summary;
+        }
+
+        function getLighthouseSummary(dateISO) {
+            return lighthouseState.byDate.get(dateISO) || null;
+        }
+
+        function shouldHighlightRoomForDate(dateObj, company, baseRoom) {
+            if (!lighthouseState.highlightActive) return false;
+            if (!dateObj) return false;
+            const iso = toLocalISODate(dateObj);
+            const summary = getLighthouseSummary(iso);
+            if (!summary) return false;
+            const roomKey = canonicalizeRoomKey(baseRoom);
+            const companyKey = canonicalizeText(company);
+            if (roomKey && summary.byRoom.has(roomKey)) {
+                if (!companyKey) return summary.byRoom.get(roomKey).actions.length > 0;
+                const companyEntry = summary.byCompany.get(companyKey);
+                if (!companyEntry) return summary.byRoom.get(roomKey).actions.length > 0;
+                const companyRoom = companyEntry.rooms.get(roomKey);
+                return Boolean(companyRoom && companyRoom.actions.length);
+            }
+            if (companyKey && summary.byCompany.has(companyKey)) {
+                return summary.byCompany.get(companyKey).actions.length > 0;
+            }
+            return summary.avActions.length > 0;
+        }
+
+        function shouldHighlightWeekly(company, dayIso) {
+            if (!lighthouseState.highlightActive) return false;
+            const summary = getLighthouseSummary(dayIso);
+            if (!summary) return false;
+            const companyKey = canonicalizeText(company);
+            if (companyKey && summary.byCompany.has(companyKey)) {
+                return summary.byCompany.get(companyKey).actions.length > 0;
+            }
+            return summary.avActions.length > 0;
+        }
+
+        function renderSimpleList(items, emptyText) {
+            if (!items.length) {
+                return `<p class="av-empty">${emptyText}</p>`;
+            }
+            return `<ul class="av-list">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
+        }
+
+        function renderActionList(actions) {
+            if (!actions.length) {
+                return '<p class="av-empty">No AV actions mapped to this room.</p>';
+            }
+            return `<ul class="av-list">${actions.map(action => {
+                const pieces = [];
+                if (action.job) pieces.push(`<strong>${action.job}</strong>`);
+                if (action.itemName) pieces.push(action.itemName);
+                if (action.quantity && action.quantity !== 1) pieces.push(`Qty ${action.quantity}`);
+                if (action.contact) pieces.push(`Contact: ${action.contact}`);
+                return `<li>${pieces.join(' · ')}</li>`;
+            }).join('')}</ul>`;
+        }
+
+        function renderDailyPanel(panel, summary) {
+            const sections = [];
+            const selectedKey = lighthouseState.selectedRoom;
+            if (selectedKey && summary.byRoom.has(selectedKey)) {
+                const roomEntry = summary.byRoom.get(selectedKey);
+                sections.push(`<div class="av-section"><h4>${roomEntry.name || 'Selected Room'}</h4>${renderActionList(roomEntry.actions)}</div>`);
+            }
+            const jobs = Array.from(summary.jobs.values()).sort((a, b) => a.localeCompare(b));
+            const contacts = Array.from(summary.contacts.values()).map(entry => ({
+                name: entry.name,
+                jobs: Array.from(entry.jobs.values()).sort((a, b) => a.localeCompare(b)),
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            const gear = Array.from(summary.gearTotals.values()).map(entry => ({
+                name: entry.name,
+                quantity: entry.quantity || 0,
+                sources: Array.from(entry.sources.values()).sort((a, b) => a.localeCompare(b)),
+            })).sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
+
+            const jobHtml = `<div class="av-section"><h4>Jobs</h4>${renderSimpleList(jobs, 'No AV jobs recorded.')}</div>`;
+            const contactHtml = contacts.length ? `<ul class="av-list">${contacts.map(c => `<li><div><strong>${c.name}</strong></div>${c.jobs.length ? `<div>${c.jobs.join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV contacts recorded.</p>';
+            const contactSection = `<div class="av-section"><h4>Contacts</h4>${contactHtml}</div>`;
+            const gearHtml = gear.length ? `<ul class="av-list">${gear.map(item => `<li><div><strong>${item.name}</strong> · Qty ${item.quantity}</div>${item.sources.length ? `<div>${item.sources.join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV gear recorded.</p>';
+            const gearSection = `<div class="av-section"><h4>Gear</h4>${gearHtml}</div>`;
+            const summaryGrid = `<div class="av-sections">${jobHtml}${contactSection}${gearSection}</div>`;
+            panel.innerHTML = `${sections.join('')}${summaryGrid}`;
+        }
+
+        function renderWeeklyPanel(panel, weekDates) {
+            const aggregate = {
+                gear: new Map(),
+                contacts: new Map(),
+                jobs: new Set(),
+                missing: [],
+            };
+            weekDates.forEach(dateISO => {
+                const summary = getLighthouseSummary(dateISO);
+                if (!summary) {
+                    aggregate.missing.push(dateISO);
+                    return;
+                }
+                summary.jobs.forEach(job => aggregate.jobs.add(job));
+                summary.contacts.forEach((value, key) => {
+                    if (!aggregate.contacts.has(key)) {
+                        aggregate.contacts.set(key, { name: value.name, jobs: new Set() });
+                    }
+                    value.jobs.forEach(job => aggregate.contacts.get(key).jobs.add(job));
+                });
+                summary.gearTotals.forEach((value, key) => {
+                    if (!aggregate.gear.has(key)) {
+                        aggregate.gear.set(key, { name: value.name, quantity: 0, sources: new Set() });
+                    }
+                    aggregate.gear.get(key).quantity += value.quantity || 0;
+                    value.sources.forEach(job => aggregate.gear.get(key).sources.add(job));
+                });
+            });
+
+            const jobs = Array.from(aggregate.jobs.values()).sort((a, b) => a.localeCompare(b));
+            const contacts = Array.from(aggregate.contacts.values()).map(entry => ({
+                name: entry.name,
+                jobs: Array.from(entry.jobs.values()).sort((a, b) => a.localeCompare(b)),
+            })).sort((a, b) => a.name.localeCompare(b.name));
+            const gear = Array.from(aggregate.gear.values()).map(entry => ({
+                name: entry.name,
+                quantity: entry.quantity || 0,
+                sources: Array.from(entry.sources.values()).sort((a, b) => a.localeCompare(b)),
+            })).filter(entry => !canonicalizeText(entry.name).includes('internet'))
+              .sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
+
+            const jobSection = `<div class="av-section"><h4>Jobs</h4>${renderSimpleList(jobs, 'No AV jobs synced this week.')}</div>`;
+            const contactHtml = contacts.length ? `<ul class="av-list">${contacts.map(c => `<li><div><strong>${c.name}</strong></div>${c.jobs.length ? `<div>${c.jobs.join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV contacts synced this week.</p>';
+            const contactSection = `<div class="av-section"><h4>Contacts</h4>${contactHtml}</div>`;
+            const gearHtml = gear.length ? `<ul class="av-list">${gear.map(item => `<li><div><strong>${item.name}</strong> · Qty ${item.quantity}</div>${item.sources.length ? `<div>${item.sources.join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV gear synced this week.</p>';
+            const gearSection = `<div class="av-section"><h4>Gear Totals</h4>${gearHtml}</div>`;
+            panel.innerHTML = `<div class="av-sections">${gearSection}${contactSection}${jobSection}</div>` + (aggregate.missing.length ? `<p class="av-empty">No Lighthouse data for: ${aggregate.missing.map(date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ')}</p>` : '');
+            const syncedCount = weekDates.length - aggregate.missing.length;
+            if (syncedCount === weekDates.length) {
+                setLighthousePanelStatus('Synced for all 7 days', 'success');
+            } else if (syncedCount === 0) {
+                setLighthousePanelStatus('No Lighthouse data for this week', null);
+            } else {
+                setLighthousePanelStatus(`Synced for ${syncedCount} of 7 days`, 'syncing');
+            }
+        }
+
+        async function refreshLighthousePanel() {
+            const panel = document.getElementById('lighthousePanelContent');
+            if (!panel) return;
+            if (viewMode === 'week') {
+                const ws = weekStart(currentDate);
+                const weekDates = [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(ws);
+                    d.setDate(ws.getDate() + i);
+                    weekDates.push(toLocalISODate(d));
+                }
+                renderWeeklyPanel(panel, weekDates);
+                return;
+            }
+
+            const dateISO = toLocalISODate(currentDate);
+            const summary = getLighthouseSummary(dateISO);
+            if (!summary || !summary.avActions.length) {
+                panel.innerHTML = `<p class="av-empty">Sync Lighthouse to view AV details for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</p>`;
+                setLighthousePanelStatus(`No Lighthouse data for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, null);
+                return;
+            }
+            renderDailyPanel(panel, summary);
+            setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
+        }
+
+        async function syncLighthouse(dateISO) {
+            if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
+                alert('Lighthouse sync is only available in the EventScope desktop app.');
+                return null;
+            }
+            console.log('[Lighthouse] Sync requested for', dateISO);
+            setLighthouseStatus('Syncing…', 'syncing');
+            try {
+                const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
+                const summary = await saveLighthousePayload(dateISO, payload);
+                setLighthouseStatus('Synced', 'success');
+                setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
+                await refreshLighthousePanel();
+                redraw();
+                console.log('[Lighthouse] Sync completed for', dateISO);
+                return summary;
+            } catch (err) {
+                console.error('Unable to sync Lighthouse', err);
+                setLighthouseStatus('Sync failed', 'error');
+                setLighthousePanelStatus('Lighthouse sync failed', 'error');
+                alert('Unable to sync Lighthouse. Please try again.');
+                return null;
+            }
+        }
+
         function parseDayOfEvent(str) {
             if (!str) return null;
             let d = new Date(str);
@@ -1260,10 +1923,6 @@
             if (mod === "PM" && h < 12) h += 12;
             if (mod === "AM" && h === 12) h = 0;
             return [h, m];
-        }
-
-        function toLocalISODate(d) {
-            return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
         }
 
         function sameDay(a, b) {
@@ -1293,7 +1952,8 @@
             x.setDate(x.getDate() - day);
             x.setHours(0, 0, 0, 0);
             return x;
-        } // Sunday 00:00
+        }
+
         function weekEnd(d) {
             const ws = weekStart(d);
             const we = new Date(ws);
@@ -1379,6 +2039,20 @@
             }
             return out;
         }
+        function toLocalISODate(value) {
+            if (!value) {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            }
+            const date = value instanceof Date ? value : new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                const fallback = new Date();
+                console.warn('Invalid date passed to toLocalISODate', value);
+                return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, '0')}-${String(fallback.getDate()).padStart(2, '0')}`;
+            }
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+
         // Convert "YYYY-MM-DD" into a Date at LOCAL midnight
         function fromISODateLocal(iso) {
             const [y, m, d] = iso.split("-").map(Number);
@@ -1460,6 +2134,7 @@
             const groups = {};
             let dataMin = null,
                 dataMax = null;
+            const rowMeta = [];
 
             const source = applySearchFilter(allEvents || []); // <-- search filter
             source.forEach(ev => {
@@ -1571,22 +2246,26 @@
                 Object.values(groups).forEach(g => {
                     if (g.base === roomBase && sameDay(g.min, chosen)) {
                         usedBases.add(roomBase);
-                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), "", g.min, g.max]);
+                        const highlight = shouldHighlightRoomForDate(chosen, g.company, g.base);
+                        const style = highlight ? LIGHTHOUSE_HIGHLIGHT_STYLE : "";
+                        rows.push([g.roomLabel, g.company || g.items[0]?.event || "", groupTooltip(g.roomLabel, g.items, g.status), style, g.min, g.max]);
+                        rowMeta.push({ base: g.base, company: g.company || "", label: g.roomLabel });
                     }
                 });
                 if (showAllRooms && !usedBases.has(roomBase)) {
                     const base = dataMin || new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 8, 0);
                     rows.push([roomBase, "", "", "color:#E5E7EB;", base, new Date(base.getTime() + 60000)]);
+                    rowMeta.push(null);
                 }
             });
             if (!rows.length) {
                 container.innerHTML = "<p style='color:#c00; margin:12px;'>No events found for this date.</p>";
+                refreshLighthousePanel();
                 return;
             }
 
             dt.addRows(rows);
 
-            // full-day window
             const startHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 0, 0, 0, 0);
             const endHour = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 23, 59, 59, 999);
             const ticks = [];
@@ -1637,10 +2316,41 @@
                     }
                 }
             });
+
+            google.visualization.events.addListener(chart, "select", () => {
+                const selection = chart.getSelection();
+                if (!selection.length) {
+                    lighthouseState.selectedRoom = null;
+                    lighthouseState.selectedCompany = null;
+                } else {
+                    const meta = rowMeta[selection[0].row];
+                    if (meta) {
+                        lighthouseState.selectedRoom = canonicalizeRoomKey(meta.base);
+                        lighthouseState.selectedCompany = canonicalizeText(meta.company);
+                    } else {
+                        lighthouseState.selectedRoom = null;
+                        lighthouseState.selectedCompany = null;
+                    }
+                }
+                refreshLighthousePanel();
+            });
+
+            if (lighthouseState.selectedRoom) {
+                const targetRoom = lighthouseState.selectedRoom;
+                const targetCompany = lighthouseState.selectedCompany;
+                const index = rowMeta.findIndex(meta => meta && canonicalizeRoomKey(meta.base) === targetRoom && canonicalizeText(meta.company) === targetCompany);
+                if (index >= 0) {
+                    chart.setSelection([{ row: index }]);
+                }
+            } else {
+                chart.setSelection([]);
+            }
+
+            refreshLighthousePanel();
         }
 
-        /* Weekly: Sun→Sat columns always visible; per company, add day segments (filled when present) */
         function drawWeekly(anyDateISO) {
+
             const container = document.getElementById("timeline");
             const chart = new google.visualization.Timeline(container);
             const dt = new google.visualization.DataTable();
@@ -1758,7 +2468,10 @@
                     const roomsList = has ? Array.from(perCompany.get(company).get(dayIso)).sort() : [];
                     const segStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
                     const segEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-                    const style = has ? "" : "color:#E5E7EB;";
+                    let style = has ? "" : "color:#E5E7EB;";
+                    if (has && shouldHighlightWeekly(company, dayIso)) {
+                        style = LIGHTHOUSE_HIGHLIGHT_STYLE;
+                    }
 
                     const weekRange = `${ws.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${we.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
                     const span = companySpans.get(company);
@@ -1782,6 +2495,7 @@
 
             if (!rows.length) {
                 container.innerHTML = "<p style='color:#c00; margin:12px;'>No companies intersect this week.</p>";
+                refreshLighthousePanel();
                 return;
             }
             dt.addRows(rows);
@@ -1837,6 +2551,8 @@
                     }
                 }
             });
+
+            refreshLighthousePanel();
         }
 
         /* ========= CHANGE LOG =========
@@ -2252,12 +2968,15 @@
             if (reportA.length && reportB.length) {
                 generateChangeLog(reportA, reportB);
             }
+            console.log('[Reports] Ingested', filtered.length, 'rows for', target);
         }
 
         async function processPdfUpload(file, target) {
             if (!file) return;
+            console.log('[Reports] Processing upload', file.name, 'for', target);
             try {
                 const rows = await loadPDF(file, target);
+                console.log('[Reports] Parsed', rows.length, 'rows from', file.name);
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
                 }
@@ -2444,6 +3163,46 @@
             const selectA = document.getElementById("reportHistoryA");
             const selectB = document.getElementById("reportHistoryB");
 
+            const lighthouseButton = document.getElementById("lighthouseSyncBtn");
+            const highlightBtn = document.getElementById("highlightAVBtn");
+
+            if (lighthouseButton) {
+                lighthouseButton.addEventListener("click", async () => {
+                    const targetDate = toLocalISODate(currentDate);
+                    if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
+                        alert('Lighthouse sync is only available in the EventScope desktop app.');
+                        return;
+                    }
+                    await syncLighthouse(targetDate);
+                });
+                if (!LIGHTHOUSE_ENABLED) {
+                    lighthouseButton.disabled = true;
+                    lighthouseButton.title = "Available in the desktop app";
+                }
+            }
+
+            if (highlightBtn) {
+                highlightBtn.addEventListener("click", () => {
+                    lighthouseState.highlightActive = !lighthouseState.highlightActive;
+                    highlightBtn.classList.toggle("toggled", lighthouseState.highlightActive);
+                    highlightBtn.textContent = lighthouseState.highlightActive ? "Highlight AV: On" : "Highlight AV";
+                    redraw();
+                });
+                highlightBtn.classList.toggle("toggled", lighthouseState.highlightActive);
+                highlightBtn.textContent = lighthouseState.highlightActive ? "Highlight AV: On" : "Highlight AV";
+                if (!LIGHTHOUSE_ENABLED) {
+                    highlightBtn.disabled = true;
+                    highlightBtn.title = "Sync Lighthouse in the desktop app to enable highlighting.";
+                }
+            }
+
+            if (!LIGHTHOUSE_ENABLED) {
+                setLighthouseStatus('Desktop app required', 'error');
+                setLighthousePanelStatus('Lighthouse sync available in desktop app', null);
+            } else {
+                setLighthouseStatus('Ready', null);
+            }
+
             if (selectA) {
                 selectA.addEventListener("change", async () => {
                     const option = selectA.options[selectA.selectedIndex];
@@ -2479,6 +3238,7 @@
             }
 
             await initializeReportHistory();
+            await loadStoredLighthouseData();
 
             // Segmented control
             document.querySelectorAll("#viewMode button").forEach(btn => {
@@ -2486,6 +3246,10 @@
                     document.querySelectorAll("#viewMode button").forEach(b => b.classList.remove("active"));
                     btn.classList.add("active");
                     viewMode = btn.dataset.mode;
+                    if (viewMode === "week") {
+                        lighthouseState.selectedRoom = null;
+                        lighthouseState.selectedCompany = null;
+                    }
                     syncDateUI(currentDate);
                     redraw();
                 });
@@ -2533,6 +3297,7 @@
 
             // initial
             syncDateUI(currentDate);
+            refreshLighthousePanel();
             google.charts.setOnLoadCallback(() => redraw());
         }
         window.addEventListener("resize", () => redraw());

@@ -968,6 +968,24 @@
         const LIGHTHOUSE_STATUS_CLASSES = ["success", "error", "syncing"];
         const LIGHTHOUSE_HIGHLIGHT_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
 
+        const ROOM_ORDER = [
+            "Whitley Ballroom", "Whitley Prefunction",
+            "Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII",
+            "Plaza Ballroom", "Plaza Prefunction", "Plaza I", "Plaza II", "Plaza III",
+            "Gallery", "Gallery Prefunction", "Gallery I", "Gallery II",
+            "Legacy Ballroom", "Legacy Prefunction", "Legacy I", "Legacy II",
+            "Ambassador", "Attache", "Attache Charge", "Boardroom", "Charge", "Consulate",
+            "Delegate", "Diplomat", "Director's Room", "Envoy", "The Founders Room"
+        ];
+        const SUBORDER = {
+            "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
+            "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
+            "Legacy Ballroom": ["Legacy I", "Legacy II"],
+            "Gallery": ["Gallery I", "Gallery II"]
+        };
+        const PARENT_MAP = {};
+        Object.entries(SUBORDER).forEach(([parent, subs]) => subs.forEach(sub => PARENT_MAP[sub] = parent));
+
         const lighthouseState = {
             byDate: new Map(),
             selectedRoom: null,

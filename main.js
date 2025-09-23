@@ -32,15 +32,20 @@ function createMainWindow() {
 }
 
 async function captureCookiesFromSession(targetSession) {
-  if (!targetSession) return;
+  if (!targetSession) return '';
   try {
-    const cookies = await targetSession.cookies.get({ url: 'https://api-cus.psav.com' });
-    if (cookies && cookies.length) {
-      authCookieHeader = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+    const cookiesApi = await targetSession.cookies.get({ url: 'https://api-cus.psav.com' }).catch(() => []);
+    const cookiesLh = await targetSession.cookies.get({ url: 'https://lighthouse2.psav.com' }).catch(() => []);
+    const cookies = [...cookiesApi, ...cookiesLh];
+    if (cookies.length) {
+      const header = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+      authCookieHeader = header;
+      return header;
     }
   } catch (error) {
     console.warn('Unable to read Lighthouse cookies', error);
   }
+  return '';
 }
 
 function clearAuthentication() {
@@ -179,7 +184,9 @@ async function fetchLighthouseActions(dateInput, attempt = 0) {
     let cookieHeader = authCookieHeader;
     if (!cookieHeader) {
       try {
-        const cookies = await session.defaultSession.cookies.get({ url: 'https://api-cus.psav.com' });
+        const cookiesApi = await session.defaultSession.cookies.get({ url: 'https://api-cus.psav.com' }).catch(() => []);
+        const cookiesLh = await session.defaultSession.cookies.get({ url: 'https://lighthouse2.psav.com' }).catch(() => []);
+        const cookies = [...cookiesApi, ...cookiesLh];
         if (cookies.length) {
           cookieHeader = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
           console.log('[Lighthouse] Default session cookies collected for Lighthouse fetch');
@@ -197,6 +204,9 @@ async function fetchLighthouseActions(dateInput, attempt = 0) {
     }
   }
 
+  console.log('[Lighthouse] GetActions URL:', url);
+  console.log('[Lighthouse] Auth bearer?', Boolean(headers.Authorization));
+  console.log('[Lighthouse] Cookie header length:', headers.Cookie ? headers.Cookie.length : 0);
   console.log('[Lighthouse] Fetching actions for', asOf);
   const response = await fetch(url, { headers });
   if (response.status === 401 || response.status === 403) {

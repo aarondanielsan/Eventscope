@@ -963,7 +963,8 @@
         let searchTerm = ""; // timeline-only filter
         let suggestionsList = []; // autosuggest values
 
-        const LIGHTHOUSE_ENABLED = Boolean(window.ipcRenderer?.invoke);
+        const LIGHTHOUSE_BRIDGE = window.desktop?.lighthouse ?? null;
+        const LIGHTHOUSE_ENABLED = Boolean(LIGHTHOUSE_BRIDGE?.getActions);
         const LIGHTHOUSE_STATUS_CLASSES = ["success", "error", "syncing"];
         const LIGHTHOUSE_HIGHLIGHT_STYLE = "fill-color: #3cc47c; stroke-color: #ffffff; stroke-width: 2;";
 
@@ -1690,6 +1691,7 @@
                     console.error("Unable to persist Lighthouse payload", err);
                 }
             }
+            console.log('[Lighthouse] Payload stored for', dateISO, 'with', summary.actions.length, 'actions');
             return summary;
         }
 
@@ -1861,18 +1863,20 @@
         }
 
         async function syncLighthouse(dateISO) {
-            if (!LIGHTHOUSE_ENABLED) {
+            if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
                 alert('Lighthouse sync is only available in the EventScope desktop app.');
                 return null;
             }
+            console.log('[Lighthouse] Sync requested for', dateISO);
             setLighthouseStatus('Syncing…', 'syncing');
             try {
-                const payload = await window.ipcRenderer.invoke('lighthouse:getactions', { date: dateISO });
+                const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
                 const summary = await saveLighthousePayload(dateISO, payload);
                 setLighthouseStatus('Synced', 'success');
                 setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
                 await refreshLighthousePanel();
                 redraw();
+                console.log('[Lighthouse] Sync completed for', dateISO);
                 return summary;
             } catch (err) {
                 console.error('Unable to sync Lighthouse', err);
@@ -1961,6 +1965,20 @@
             }
             return out;
         }
+        function toLocalISODate(value) {
+            if (!value) {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            }
+            const date = value instanceof Date ? value : new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                const fallback = new Date();
+                console.warn('Invalid date passed to toLocalISODate', value);
+                return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, '0')}-${String(fallback.getDate()).padStart(2, '0')}`;
+            }
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+
         // Convert "YYYY-MM-DD" into a Date at LOCAL midnight
         function fromISODateLocal(iso) {
             const [y, m, d] = iso.split("-").map(Number);
@@ -2876,12 +2894,15 @@
             if (reportA.length && reportB.length) {
                 generateChangeLog(reportA, reportB);
             }
+            console.log('[Reports] Ingested', filtered.length, 'rows for', target);
         }
 
         async function processPdfUpload(file, target) {
             if (!file) return;
+            console.log('[Reports] Processing upload', file.name, 'for', target);
             try {
                 const rows = await loadPDF(file, target);
+                console.log('[Reports] Parsed', rows.length, 'rows from', file.name);
                 if (!rows.length) {
                     alert(`No events were recognized in ${file.name}.`);
                 }
@@ -3074,7 +3095,7 @@
             if (lighthouseButton) {
                 lighthouseButton.addEventListener("click", async () => {
                     const targetDate = toLocalISODate(currentDate);
-                    if (!LIGHTHOUSE_ENABLED) {
+                    if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
                         alert('Lighthouse sync is only available in the EventScope desktop app.');
                         return;
                     }

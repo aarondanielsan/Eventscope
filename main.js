@@ -44,6 +44,7 @@ async function captureCookiesFromSession(targetSession) {
 }
 
 function clearAuthentication() {
+  console.log('[Lighthouse] Clearing cached authentication');
   authToken = null;
   authCookieHeader = null;
   if (authSession) {
@@ -56,6 +57,7 @@ async function ensureAuthenticated(force = false) {
     clearAuthentication();
   }
   if (authToken || authCookieHeader) {
+    console.log('[Lighthouse] Using cached authentication');
     return;
   }
   if (authPromise) {
@@ -92,6 +94,7 @@ async function ensureAuthenticated(force = false) {
       const header = details.requestHeaders?.Authorization || details.requestHeaders?.authorization;
       if (header) {
         authToken = header;
+        console.log('[Lighthouse] Token captured from request headers');
       }
       callback({ requestHeaders: details.requestHeaders });
       await captureCookiesFromSession(authSession);
@@ -99,10 +102,17 @@ async function ensureAuthenticated(force = false) {
     });
 
     authSession.webRequest.onCompleted(filter, async () => {
-      await captureCookiesFromSession(authSession);
+      if (authSession) {
+        const existing = authCookieHeader;
+        await captureCookiesFromSession(authSession);
+        if (!existing && authCookieHeader) {
+          console.log('[Lighthouse] Session cookies captured');
+        }
+      }
       await maybeResolve();
     });
 
+    console.log('[Lighthouse] Login triggered');
     authWindow = new BrowserWindow({
       width: 1100,
       height: 800,
@@ -143,12 +153,12 @@ function buildAsOf(dateInput) {
   }
   if (typeof dateInput === 'string' && dateInput.includes('T')) {
     const parsed = new Date(dateInput);
-    if (!Number.isNaN(parsed)) {
+    if (!Number.isNaN(parsed.getTime())) {
       return parsed.toISOString();
     }
   }
   const base = new Date(dateInput);
-  if (!Number.isNaN(base)) {
+  if (!Number.isNaN(base.getTime())) {
     return new Date(Date.UTC(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0)).toISOString();
   }
   return new Date().toISOString();
@@ -169,6 +179,7 @@ async function fetchLighthouseActions(dateInput, attempt = 0) {
     headers.Cookie = authCookieHeader;
   }
 
+  console.log('[Lighthouse] Fetching actions for', asOf);
   const response = await fetch(url, { headers });
   if (response.status === 401 || response.status === 403) {
     if (attempt < 1) {
@@ -184,11 +195,14 @@ async function fetchLighthouseActions(dateInput, attempt = 0) {
     throw new Error(`Lighthouse request failed (${response.status}): ${bodyText}`);
   }
 
-  return response.json();
+  const json = await response.json();
+  console.log('[Lighthouse] Returning payload for', asOf);
+  return json;
 }
 
 ipcMain.handle('lighthouse:getactions', async (_event, payload) => {
-  const dateInput = payload?.date;
+  const dateInput = payload?.asOf ?? payload?.date;
+  console.log('[IPC] lighthouse:getactions received', dateInput);
   if (!dateInput) {
     throw new Error('A date string is required for Lighthouse sync.');
   }

@@ -1,0 +1,138 @@
+[
+  {
+    "roomGuid": "whitley-ballroom",
+    "roomName": "Whitley Ballroom"
+  },
+  {
+    "roomGuid": "whitley-prefunction",
+    "roomName": "Whitley Prefunction"
+  },
+  {
+    "roomGuid": "salon-i",
+    "roomName": "Salon I"
+  },
+  {
+    "roomGuid": "salon-ii",
+    "roomName": "Salon II"
+  },
+  {
+    "roomGuid": "salon-iii",
+    "roomName": "Salon III"
+  },
+  {
+    "roomGuid": "salon-iv",
+    "roomName": "Salon IV"
+  },
+  {
+    "roomGuid": "salon-v",
+    "roomName": "Salon V"
+  },
+  {
+    "roomGuid": "salon-vi",
+    "roomName": "Salon VI"
+  },
+  {
+    "roomGuid": "salon-vii",
+    "roomName": "Salon VII"
+  },
+  {
+    "roomGuid": "salon-viii",
+    "roomName": "Salon VIII"
+  },
+  {
+    "roomGuid": "plaza-ballroom",
+    "roomName": "Plaza Ballroom"
+  },
+  {
+    "roomGuid": "plaza-prefunction",
+    "roomName": "Plaza Prefunction"
+  },
+  {
+    "roomGuid": "plaza-i",
+    "roomName": "Plaza I"
+  },
+  {
+    "roomGuid": "plaza-ii",
+    "roomName": "Plaza II"
+  },
+  {
+    "roomGuid": "plaza-iii",
+    "roomName": "Plaza III"
+  },
+  {
+    "roomGuid": "gallery",
+    "roomName": "Gallery"
+  },
+  {
+    "roomGuid": "gallery-prefunction",
+    "roomName": "Gallery Prefunction"
+  },
+  {
+    "roomGuid": "gallery-i",
+    "roomName": "Gallery I"
+  },
+  {
+    "roomGuid": "gallery-ii",
+    "roomName": "Gallery II"
+  },
+  {
+    "roomGuid": "legacy-ballroom",
+    "roomName": "Legacy Ballroom"
+  },
+  {
+    "roomGuid": "legacy-prefunction",
+    "roomName": "Legacy Prefunction"
+  },
+  {
+    "roomGuid": "legacy-i",
+    "roomName": "Legacy I"
+  },
+  {
+    "roomGuid": "legacy-ii",
+    "roomName": "Legacy II"
+  },
+  {
+    "roomGuid": "ambassador",
+    "roomName": "Ambassador"
+  },
+  {
+    "roomGuid": "attache",
+    "roomName": "Attache"
+  },
+  {
+    "roomGuid": "attache-charge",
+    "roomName": "Attache Charge"
+  },
+  {
+    "roomGuid": "boardroom",
+    "roomName": "Boardroom"
+  },
+  {
+    "roomGuid": "charge",
+    "roomName": "Charge"
+  },
+  {
+    "roomGuid": "consulate",
+    "roomName": "Consulate"
+  },
+  {
+    "roomGuid": "delegate",
+    "roomName": "Delegate"
+  },
+  {
+    "roomGuid": "diplomat",
+    "roomName": "Diplomat"
+  },
+  {
+    "roomGuid": "director-s-room",
+    "roomName": "Director's Room"
+  },
+  {
+    "roomGuid": "envoy",
+    "roomName": "Envoy"
+  },
+  {
+    "roomGuid": "the-founders-room",
+    "roomName": "The Founders Room"
+  }
+]

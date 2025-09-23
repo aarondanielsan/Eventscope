@@ -308,6 +308,33 @@
             font-size: .78rem;
         }
 
+        .av-equipment .av-item-line {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .av-equipment .av-item-label {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .av-equipment .av-item-label.av-package {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .av-equipment .av-item-label.av-package strong {
+            font-weight: 600;
+        }
+
+        .av-equipment .av-item-label .av-sub {
+            font-size: .72rem;
+            color: var(--muted);
+            font-weight: 400;
+        }
+
         .av-meta {
             margin-left: 6px;
             font-size: .75rem;
@@ -1589,7 +1616,7 @@
                 const base = PARENT_MAP[normalized[0]] || normalized[0];
                 return base;
             }
-            const trimmed = String(name).trim();
+            const trimmed = String(name).trim().replace(/\s{2,}/g, ' ');
             if (!trimmed) return '';
             const direct = ROOM_ORDER.find(room => room.toLowerCase() === trimmed.toLowerCase());
             return direct || trimmed;
@@ -1833,6 +1860,20 @@
                 contacts: new Map(),
                 jobs: new Set(),
                 packageHeaders: new Map(),
+                diagnostics: {
+                    requestedDate: dateISO,
+                    topLevelKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+                    roomActionCount: 0,
+                    jobCount: 0,
+                    jobsWithEquipment: 0,
+                    jobsWithoutEquipment: 0,
+                    usedStructuredRoomActions: false,
+                    fallbackListLength: 0,
+                    canonicalization: [],
+                    canonicalizationSeen: new Set(),
+                    matchedRoomKeys: new Set(),
+                    unmatchedRooms: [],
+                },
             };
         }
 
@@ -1903,6 +1944,9 @@
         }
 
         function recordSummaryAction(summary, roomEntry, jobEntry, details) {
+            const displayName = details.description || '';
+            const rawDescription = details.rawDescription || details.description || '';
+            const packageName = details.packageName || '';
             const record = {
                 roomKey: roomEntry?.key || '',
                 roomName: roomEntry?.name || details.roomName || '',
@@ -1910,7 +1954,9 @@
                 job: details.job || jobEntry?.name || '',
                 company: details.company || jobEntry?.company || '',
                 category: details.category || '',
-                description: details.description || '',
+                description: displayName,
+                rawDescription,
+                packageName,
                 quantity: details.quantity ?? 0,
                 isPackageHeader: Boolean(details.isPackageHeader),
             };
@@ -1936,16 +1982,21 @@
                 }
             }
             if (record.isPackageHeader) {
-                const pkgKey = `${canonicalizeText(record.description)}|${record.quantity || 0}`;
+                const canonicalName = canonicalizeText(record.packageName || record.description);
+                const pkgKey = `${canonicalName}|${record.quantity || 0}`;
                 if (!summary.packageHeaders.has(pkgKey)) {
-                    summary.packageHeaders.set(pkgKey, { name: record.description, quantity: record.quantity || 0, sources: new Set() });
+                    summary.packageHeaders.set(pkgKey, {
+                        name: record.packageName || record.description,
+                        quantity: record.quantity || 0,
+                        sources: new Set(),
+                    });
                 }
                 if (record.job) summary.packageHeaders.get(pkgKey).sources.add(record.job);
             } else {
-                const descKey = canonicalizeText(record.description);
+                const descKey = canonicalizeText(record.description || record.rawDescription);
                 if (descKey && !descKey.includes('internet')) {
                     if (!summary.gearTotals.has(descKey)) {
-                        summary.gearTotals.set(descKey, { name: record.description, quantity: 0, sources: new Set() });
+                        summary.gearTotals.set(descKey, { name: record.description || record.rawDescription, quantity: 0, sources: new Set() });
                     }
                     const gearEntry = summary.gearTotals.get(descKey);
                     gearEntry.quantity += record.quantity || 0;
@@ -2079,6 +2130,17 @@
             return '';
         }
 
+        function extractPackageName(item) {
+            const candidates = [
+                item?.packageName, item?.package?.name, item?.packageHeaderName,
+                item?.PackageName, item?.Package?.Name
+            ];
+            for (const value of candidates) {
+                if (value) return value;
+            }
+            return '';
+        }
+
         function isPackageHeaderItem(item) {
             const candidates = [
                 item?.isPackageHeader, item?.packageHeader, item?.isHeader, item?.isPackage, item?.IsPackageHeader,
@@ -2100,11 +2162,21 @@
 
         function processEquipmentItem(summary, roomEntry, jobEntry, categoryEntry, item, categoryName, depth, parentStructured) {
             if (!item) return;
-            const description = extractEquipmentDescription(item);
-            if (!description) return;
+            const rawDescription = extractEquipmentDescription(item);
+            const packageName = extractPackageName(item);
+            if (!rawDescription && !packageName) return;
             const quantity = extractQuantity(item);
             const isPackageHeader = isPackageHeaderItem(item);
-            const structured = { description, quantity, isPackageHeader, children: [] };
+            const displayName = isPackageHeader ? (packageName || rawDescription || 'Package') : (rawDescription || 'Item');
+            const structured = {
+                description: displayName,
+                rawDescription: rawDescription || '',
+                displayName,
+                packageName: packageName || '',
+                quantity,
+                isPackageHeader,
+                children: [],
+            };
             if (depth === 0) {
                 categoryEntry.items.push(structured);
             } else if (parentStructured) {
@@ -2114,7 +2186,9 @@
                 job: jobEntry?.name,
                 company: jobEntry?.company,
                 category: categoryName,
-                description,
+                description: displayName,
+                rawDescription,
+                packageName,
                 quantity,
                 isPackageHeader,
             });
@@ -2123,15 +2197,40 @@
         }
 
         function processStructuredRoomActions(summary, roomActions) {
+            const diagnostics = summary?.diagnostics;
             roomActions.forEach(roomAction => {
+                if (diagnostics) {
+                    diagnostics.roomActionCount += 1;
+                }
                 const roomGuid = roomAction?.roomGuid || roomAction?.roomId || roomAction?.room?.roomGuid;
                 const rawRoomName = roomAction?.roomName || roomAction?.room?.name || roomAction?.spaceName || roomAction?.name || '';
                 const canonical = canonicalizeRoomFromGuide(roomGuid, rawRoomName);
                 const roomName = canonical.name || normalizeRoomDisplayName(rawRoomName) || rawRoomName || '';
                 const roomKey = canonical.key || canonicalizeRoomKey(roomName);
+                if (diagnostics) {
+                    const logKey = `${roomGuid || ''}|${rawRoomName || ''}|${roomKey || ''}`;
+                    if (!diagnostics.canonicalizationSeen.has(logKey)) {
+                        diagnostics.canonicalizationSeen.add(logKey);
+                        diagnostics.canonicalization.push({
+                            roomGuid: roomGuid || null,
+                            rawName: rawRoomName || '',
+                            canonicalName: roomName || '',
+                            canonicalKey: roomKey || '',
+                            matched: Boolean(roomKey),
+                        });
+                    }
+                    if (roomKey) {
+                        diagnostics.matchedRoomKeys.add(roomKey);
+                    } else {
+                        diagnostics.unmatchedRooms.push({ roomGuid: roomGuid || null, rawName: rawRoomName || '' });
+                    }
+                }
                 const roomEntry = ensureRoomEntry(summary, roomKey, roomName, canonical.guid);
                 const jobs = extractRoomJobs(roomAction);
                 jobs.forEach(job => {
+                    if (diagnostics) {
+                        diagnostics.jobCount += 1;
+                    }
                     const jobName = extractJob(job) || extractJob(roomAction);
                     const company = extractJobCompany(roomAction, job);
                     const jobEntry = ensureJobEntry(roomEntry, jobName, company);
@@ -2142,6 +2241,10 @@
                     }
                     addContactsToSummary(summary, jobEntry, contacts);
                     const sections = extractEquipmentSections(job);
+                    if (diagnostics) {
+                        if (sections.length) diagnostics.jobsWithEquipment += 1;
+                        else diagnostics.jobsWithoutEquipment += 1;
+                    }
                     if (!sections.length) return;
                     sections.forEach(section => {
                         const categoryName = extractSectionName(section) || 'Equipment';
@@ -2191,13 +2294,23 @@
                             jobEntry.categories.set('av-default', { key: 'av-default', name: category || 'AV Equipment', items: [] });
                         }
                         const categoryEntry = jobEntry.categories.get('av-default');
-                        categoryEntry.items.push({ description: item || 'Item', quantity, isPackageHeader: false, children: [] });
+                        categoryEntry.items.push({
+                            description: item || 'Item',
+                            displayName: item || 'Item',
+                            rawDescription: item || 'Item',
+                            packageName: '',
+                            quantity,
+                            isPackageHeader: false,
+                            children: [],
+                        });
                     }
                     recordSummaryAction(summary, roomEntry, jobEntry, {
                         job,
                         company,
                         category: category || 'AV Equipment',
                         description: item || 'Item',
+                        rawDescription: item || 'Item',
+                        packageName: '',
                         quantity,
                         isPackageHeader: false,
                     });
@@ -2205,13 +2318,39 @@
             });
         }
 
+        function resolveLighthouseDateKey(payload, fallbackISO) {
+            const candidates = [
+                payload?.flowsheetDate,
+                payload?.value?.flowsheetDate,
+                payload?.data?.flowsheetDate,
+                payload?.flowsheet?.date,
+            ];
+            for (const candidate of candidates) {
+                if (!candidate) continue;
+                if (typeof candidate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(candidate.trim())) {
+                    return candidate.trim();
+                }
+                const parsed = new Date(candidate);
+                if (!Number.isNaN(parsed.getTime())) {
+                    return toLocalISODate(parsed);
+                }
+            }
+            return fallbackISO;
+        }
+
         function computeLighthouseSummaryForDate(dateISO, payload) {
             const summary = createEmptyLighthouseSummary(dateISO, payload);
             const roomActions = extractStructuredRoomActions(payload);
+            if (summary.diagnostics) {
+                summary.diagnostics.usedStructuredRoomActions = roomActions.length > 0;
+            }
             if (roomActions.length) {
                 processStructuredRoomActions(summary, roomActions);
             } else {
                 const list = listFromPayload(payload);
+                if (summary.diagnostics) {
+                    summary.diagnostics.fallbackListLength = list.length;
+                }
                 processGenericActions(summary, list, dateISO);
             }
             return summary;
@@ -2236,15 +2375,26 @@
 
         async function saveLighthousePayload(dateISO, payload) {
             const summary = computeLighthouseSummaryForDate(dateISO, payload);
-            lighthouseState.byDate.set(dateISO, summary);
+            const storeKey = resolveLighthouseDateKey(payload, dateISO);
+            if (summary.diagnostics) {
+                summary.diagnostics.storeKey = storeKey;
+            }
+            lighthouseState.byDate.set(storeKey, summary);
+            if (storeKey !== dateISO) {
+                lighthouseState.byDate.set(dateISO, summary);
+            }
             if (lighthouseDB) {
                 try {
-                    await lighthouseDB.actions.put({ date: dateISO, payload, savedAt: new Date().toISOString() });
+                    await lighthouseDB.actions.put({ date: storeKey, payload, savedAt: new Date().toISOString() });
                 } catch (err) {
                     console.error("Unable to persist Lighthouse payload", err);
                 }
             }
-            console.log('[Lighthouse] Payload stored for', dateISO, 'with', summary.avActions.length, 'items');
+            console.log(
+                '[Lighthouse] Payload stored for ' + storeKey +
+                ' (requested ' + dateISO + ') with ' +
+                summary.avActions.length + ' AV actions'
+            );
             return summary;
         }
 
@@ -2315,11 +2465,18 @@
             if (!item) return '';
             const qty = formatQuantityDisplay(item.quantity ?? 0);
             const qtyLabel = `<span class="av-qty">×${qty}</span>`;
-            const labelText = escapeHtml(item.description || 'Item');
-            const label = item.isPackageHeader ? `<strong>${labelText}</strong>` : labelText;
+            const displayName = item.displayName || item.description || item.packageName || item.rawDescription || 'Item';
+            let labelContent = `<span class="av-item-label">${escapeHtml(displayName)}</span>`;
+            if (item.isPackageHeader) {
+                const packageBase = item.packageName || displayName;
+                const packageLabel = escapeHtml(packageBase);
+                const shouldShowRaw = item.rawDescription && item.rawDescription !== packageBase;
+                const rawLabel = shouldShowRaw ? `<span class="av-sub">${escapeHtml(item.rawDescription)}</span>` : '';
+                labelContent = `<span class="av-item-label av-package"><strong>${packageLabel}</strong>${rawLabel}</span>`;
+            }
             const nextDepth = Math.min(depth + 1, 3);
             const children = Array.isArray(item.children) && item.children.length ? renderEquipmentList(item.children, nextDepth) : '';
-            return `<li>${label}${qtyLabel}${children}</li>`;
+            return `<li><div class="av-item-line">${labelContent}${qtyLabel}</div>${children}</li>`;
         }
 
         function renderEquipmentList(items, depth = 0) {
@@ -2395,17 +2552,18 @@
         }
 
         function accumulateWeeklyItem(categoryAggregate, item, dateISO) {
-            const descKey = canonicalizeText(item.description);
+            const displayName = item?.packageName || item?.displayName || item?.description || item?.rawDescription || 'Item';
+            const descKey = canonicalizeText(displayName);
             const quantity = Number(item.quantity) || 0;
             if (item.isPackageHeader) {
                 const pkgKey = `${descKey}|${quantity}`;
                 if (!categoryAggregate.packages.has(pkgKey)) {
-                    categoryAggregate.packages.set(pkgKey, { name: item.description, quantity, occurrences: new Set() });
+                    categoryAggregate.packages.set(pkgKey, { name: displayName, quantity, occurrences: new Set() });
                 }
                 categoryAggregate.packages.get(pkgKey).occurrences.add(dateISO);
             } else {
                 if (!categoryAggregate.items.has(descKey)) {
-                    categoryAggregate.items.set(descKey, { name: item.description, quantity: 0 });
+                    categoryAggregate.items.set(descKey, { name: displayName, quantity: 0 });
                 }
                 categoryAggregate.items.get(descKey).quantity += quantity;
             }
@@ -2499,7 +2657,7 @@
                 .join('');
             const detailHtml = categoryBlocks ? `<div class="av-room-grid">${categoryBlocks}</div>` : '<p class="av-empty">No Lighthouse AV equipment totals for this week.</p>';
             const summaryHtml = buildWeeklySummary(aggregate);
-            const missingNotice = aggregate.missing.length ? `<p class="av-empty">No Lighthouse data for: ${aggregate.missing.map(date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ')}</p>` : '';
+            const missingNotice = aggregate.missing.length ? `<p class="av-empty">No Lighthouse data for: ${aggregate.missing.map(date => escapeHtml(formatLighthouseDateLabel(date))).join(', ')}</p>` : '';
             panel.innerHTML = `${detailHtml}${summaryHtml}${missingNotice}`;
             const syncedCount = weekDates.length - aggregate.missing.length;
             if (syncedCount === weekDates.length) {
@@ -2509,6 +2667,53 @@
             } else {
                 setLighthousePanelStatus(`Synced for ${syncedCount} of 7 days`, 'syncing');
             }
+        }
+
+        function formatLighthouseDateLabel(dateISO) {
+            if (!dateISO) return '';
+            const dt = new Date(dateISO + 'T00:00:00');
+            if (Number.isNaN(dt.getTime())) return dateISO;
+            return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        function describeLighthouseEmptyState(summary, dateISO) {
+            if (!summary) return null;
+            const diag = summary.diagnostics || {};
+            const matchedRoomCount = summary.byRoom instanceof Map ? summary.byRoom.size : 0;
+            const canonicalMatches = diag.matchedRoomKeys instanceof Set ? diag.matchedRoomKeys.size : Array.isArray(diag.matchedRoomKeys) ? diag.matchedRoomKeys.length : 0;
+            const hasMatches = matchedRoomCount > 0 || canonicalMatches > 0;
+            if (diag.usedStructuredRoomActions && (diag.roomActionCount === 0 || diag.jobCount === 0)) {
+                const message = 'No jobs returned by Lighthouse for this date.';
+                return {
+                    reason: 'no-jobs',
+                    panelMessage: message,
+                    panelStatus: message,
+                    panelType: 'syncing',
+                    statusText: 'Synced (no jobs)',
+                    statusType: 'syncing',
+                };
+            }
+            if (diag.jobCount > 0 && !hasMatches) {
+                const message = 'Jobs found but no rooms matched.';
+                return {
+                    reason: 'no-room-match',
+                    panelMessage: message,
+                    panelStatus: message,
+                    panelType: 'syncing',
+                    statusText: 'Jobs found but no rooms matched',
+                    statusType: 'syncing',
+                };
+            }
+            const dateLabel = formatLighthouseDateLabel(dateISO);
+            const message = dateLabel ? `No Lighthouse AV data for ${dateLabel}.` : 'No Lighthouse AV data for this date.';
+            return {
+                reason: 'no-av-data',
+                panelMessage: message,
+                panelStatus: message,
+                panelType: null,
+                statusText: 'Synced (no AV data)',
+                statusType: 'syncing',
+            };
         }
 
         async function refreshLighthousePanel() {
@@ -2528,18 +2733,29 @@
 
             const dateISO = toLocalISODate(currentDate);
             const summary = getLighthouseSummary(dateISO);
+            const dateLabel = formatLighthouseDateLabel(dateISO);
             if (!summary) {
-                panel.innerHTML = `<p class="av-empty">Sync Lighthouse to view AV details for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</p>`;
-                setLighthousePanelStatus(`No Lighthouse data for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, null);
+                const message = dateLabel ? `Sync Lighthouse to view AV details for ${dateLabel}.` : 'Sync Lighthouse to view AV details for this date.';
+                panel.innerHTML = `<p class="av-empty">${escapeHtml(message)}</p>`;
+                const statusText = dateLabel ? `No Lighthouse data for ${dateLabel}` : 'No Lighthouse data for this date';
+                setLighthousePanelStatus(statusText, null);
                 return;
             }
             if (!summary.avActions.length) {
-                panel.innerHTML = `<p class="av-empty">No Lighthouse jobs found for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</p>`;
-                setLighthousePanelStatus(`No Lighthouse jobs for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'syncing');
+                const emptyState = describeLighthouseEmptyState(summary, dateISO);
+                if (emptyState) {
+                    panel.innerHTML = `<p class="av-empty">${escapeHtml(emptyState.panelMessage)}</p>`;
+                    setLighthousePanelStatus(emptyState.panelStatus, emptyState.panelType);
+                } else {
+                    const fallbackMessage = dateLabel ? `No Lighthouse AV data for ${dateLabel}.` : 'No Lighthouse AV data for this date.';
+                    panel.innerHTML = `<p class="av-empty">${escapeHtml(fallbackMessage)}</p>`;
+                    setLighthousePanelStatus(fallbackMessage, null);
+                }
                 return;
             }
             renderDailyPanel(panel, summary);
-            setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
+            const successText = dateLabel ? `Synced for ${dateLabel}` : 'Synced';
+            setLighthousePanelStatus(successText, 'success');
         }
 
         async function syncLighthouse(dateISO) {
@@ -2551,13 +2767,68 @@
             setLighthouseStatus('Syncing…', 'syncing');
             try {
                 const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
+                console.log('[Lighthouse] Raw payload snapshot:', payload);
+                const payloadKeys = payload && typeof payload === 'object' ? Object.keys(payload) : [];
+                console.log('[Lighthouse] Payload top-level keys:', payloadKeys);
+                const resolvedDate = resolveLighthouseDateKey(payload, dateISO);
+                console.log('[Lighthouse] Resolved flowsheet date:', resolvedDate);
+                const structuredActions = extractStructuredRoomActions(payload);
+                console.log('[Lighthouse] Structured roomActions count:', structuredActions.length);
+                let payloadJobCount = 0;
+                structuredActions.forEach(roomAction => {
+                    payloadJobCount += extractRoomJobs(roomAction).length;
+                });
+                console.log('[Lighthouse] Jobs detected in payload:', payloadJobCount);
+                if (!structuredActions.length) {
+                    const fallbackList = listFromPayload(payload);
+                    console.log('[Lighthouse] Fallback action list length:', fallbackList.length);
+                }
                 const summary = await saveLighthousePayload(dateISO, payload);
+                const diagnostics = summary.diagnostics || {};
+                const matchedRooms = diagnostics.matchedRoomKeys instanceof Set ? Array.from(diagnostics.matchedRoomKeys.values()) : (Array.isArray(diagnostics.matchedRoomKeys) ? diagnostics.matchedRoomKeys : []);
+                const unmatchedRooms = Array.isArray(diagnostics.unmatchedRooms) ? diagnostics.unmatchedRooms : [];
+                console.log('[Lighthouse] Summary diagnostics:', {
+                    requestedDate: diagnostics.requestedDate || dateISO,
+                    storeKey: diagnostics.storeKey || resolvedDate,
+                    roomActionCount: diagnostics.roomActionCount || 0,
+                    jobCount: diagnostics.jobCount || 0,
+                    jobsWithEquipment: diagnostics.jobsWithEquipment || 0,
+                    jobsWithoutEquipment: diagnostics.jobsWithoutEquipment || 0,
+                    usedStructuredRoomActions: Boolean(diagnostics.usedStructuredRoomActions),
+                    fallbackListLength: diagnostics.fallbackListLength || 0,
+                    matchedRoomKeys: matchedRooms,
+                    unmatchedRooms,
+                });
+                if (Array.isArray(diagnostics.canonicalization) && diagnostics.canonicalization.length) {
+                    if (typeof console.table === 'function') {
+                        console.table(diagnostics.canonicalization.map(entry => ({
+                            roomGuid: entry.roomGuid || '',
+                            rawName: entry.rawName || '',
+                            canonicalName: entry.canonicalName || '',
+                            canonicalKey: entry.canonicalKey || '',
+                            matched: entry.matched,
+                        })));
+                    } else {
+                        console.log('[Lighthouse] Canonicalization results:', diagnostics.canonicalization);
+                    }
+                } else {
+                    console.log('[Lighthouse] Canonicalization results: none recorded');
+                }
+                const dateLabel = formatLighthouseDateLabel(dateISO);
                 if (summary.avActions.length) {
                     setLighthouseStatus('Synced', 'success');
-                    setLighthousePanelStatus(`Synced for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'success');
+                    const successText = dateLabel ? `Synced for ${dateLabel}` : 'Synced';
+                    setLighthousePanelStatus(successText, 'success');
                 } else {
-                    setLighthouseStatus('Synced (no jobs)', 'syncing');
-                    setLighthousePanelStatus(`No Lighthouse jobs for ${new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, 'syncing');
+                    const emptyState = describeLighthouseEmptyState(summary, dateISO);
+                    if (emptyState) {
+                        setLighthouseStatus(emptyState.statusText, emptyState.statusType);
+                        setLighthousePanelStatus(emptyState.panelStatus, emptyState.panelType);
+                    } else {
+                        const fallbackMessage = dateLabel ? `No Lighthouse AV data for ${dateLabel}.` : 'No Lighthouse AV data for this date.';
+                        setLighthouseStatus('Synced (no AV data)', 'syncing');
+                        setLighthousePanelStatus(fallbackMessage, null);
+                    }
                 }
                 await refreshLighthousePanel();
                 redraw();
@@ -2649,7 +2920,7 @@
 
         function normalizeRooms(raw) {
             if (!raw) return [];
-            let s = String(raw).trim();
+            let s = String(raw).trim().replace(/\s{2,}/g, ' ');
             if (s === "The Whitley Ballroom") s = "Whitley Ballroom";
             if (s === "The Gallery") s = "Gallery";
             if (s === "Plaza") s = "Plaza Ballroom";
@@ -2660,9 +2931,9 @@
             if (s === "Prefunction") return ["Whitley Prefunction"];
             if (s.includes("(") && s.includes(")")) {
                 const inner = s.slice(s.indexOf("(") + 1, s.lastIndexOf(")")).trim();
-                if (inner) return inner.split(",").map(x => x.trim());
+                if (inner) return inner.split(",").map(x => x.trim().replace(/\s{2,}/g, ' '));
             }
-            if (s.includes(",")) return s.split(",").map(p => p.trim());
+            if (s.includes(",")) return s.split(",").map(p => p.trim().replace(/\s{2,}/g, ' '));
             return [s];
         }
 

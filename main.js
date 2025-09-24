@@ -244,6 +244,18 @@ ipcMain.handle('lighthouse:getactions', async (_event, payload) => {
 });
 
 app.whenReady().then(() => {
+  if (session?.defaultSession?.setCertificateVerifyProc) {
+    session.defaultSession.setCertificateVerifyProc((request, callback) => {
+      const hostname = (request?.hostname || '').toLowerCase();
+      if (hostname === 'psav.com' || hostname.endsWith('.psav.com')) {
+        console.log(`[SSL] Trusted certificate override for ${request.hostname}`);
+        callback(0);
+        return;
+      }
+      callback(-3);
+    });
+  }
+
   createMainWindow();
 
   app.on('activate', () => {

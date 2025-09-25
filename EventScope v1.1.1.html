@@ -2023,10 +2023,14 @@
                     if (dateDiff) return dateDiff;
                     const startDiff = a.startSortValue - b.startSortValue;
                     if (startDiff) return startDiff;
+                    const endDiff = (a.normalized.endMinutes ?? Infinity) - (b.normalized.endMinutes ?? Infinity);
+                    if (endDiff) return endDiff;
                     const spaceDiff = a.normalized.space.localeCompare(b.normalized.space);
                     if (spaceDiff) return spaceDiff;
                     const typeDiff = a.normalized.type.localeCompare(b.normalized.type);
                     if (typeDiff) return typeDiff;
+                    const setupDiff = a.normalized.setup.localeCompare(b.normalized.setup);
+                    if (setupDiff) return setupDiff;
                     return a.normalized.event.localeCompare(b.normalized.event);
                 });
             };
@@ -2173,7 +2177,10 @@
                 const sort = {
                     dateValue: base?.dateValue ?? Infinity,
                     startValue: base?.startSortValue ?? Infinity,
+                    endValue: base?.normalized?.endMinutes ?? Infinity,
                     space: base?.normalized?.space || "",
+                    type: base?.normalized?.type || "",
+                    setup: base?.normalized?.setup || "",
                     event: base?.normalized?.event || "",
                     company: base?.normalized?.company || ""
                 };
@@ -2216,126 +2223,140 @@
                 return;
             }
 
-            const UNDATED_KEY = "__undated__";
-            const dateBuckets = new Map();
+            const compareNumbers = (a, b) => {
+                const valA = Number.isFinite(a) ? a : Infinity;
+                const valB = Number.isFinite(b) ? b : Infinity;
+                if (valA === valB) return 0;
+                return valA < valB ? -1 : 1;
+            };
+
+            const companyBuckets = new Map();
 
             changes.forEach(change => {
-                const bucketKey = change.dateKey || UNDATED_KEY;
-                if (!dateBuckets.has(bucketKey)) {
-                    dateBuckets.set(bucketKey, {
-                        dateKey: bucketKey,
-                        dateDisplay: change.date || "",
-                        dateValue: change.sort.dateValue,
-                        companies: new Map()
-                    });
-                }
-
-                const dateBucket = dateBuckets.get(bucketKey);
-                if (!dateBucket.dateDisplay && change.date) {
-                    dateBucket.dateDisplay = change.date;
-                }
-                if (change.sort.dateValue < dateBucket.dateValue) {
-                    dateBucket.dateValue = change.sort.dateValue;
-                }
-
                 const companyName = change.company || "—";
-                if (!dateBucket.companies.has(companyName)) {
-                    dateBucket.companies.set(companyName, {
+                if (!companyBuckets.has(companyName)) {
+                    companyBuckets.set(companyName, {
                         company: companyName,
                         sortCompany: change.sort.company,
                         earliestStart: change.sort.startValue,
+                        earliestDate: change.sort.dateValue,
+                        latestDate: change.sort.dateValue,
                         events: new Map()
                     });
                 }
 
-                const companyBucket = dateBucket.companies.get(companyName);
-                if (change.sort.startValue < companyBucket.earliestStart) {
+                const companyBucket = companyBuckets.get(companyName);
+                if (compareNumbers(change.sort.startValue, companyBucket.earliestStart) < 0) {
                     companyBucket.earliestStart = change.sort.startValue;
+                }
+                if (compareNumbers(change.sort.dateValue, companyBucket.earliestDate) < 0) {
+                    companyBucket.earliestDate = change.sort.dateValue;
+                }
+                if (compareNumbers(change.sort.dateValue, companyBucket.latestDate) > 0) {
+                    companyBucket.latestDate = change.sort.dateValue;
                 }
 
                 const eventName = change.event || "—";
                 if (!companyBucket.events.has(eventName)) {
                     companyBucket.events.set(eventName, {
                         event: eventName,
+                        entries: [],
+                        sortDate: change.sort.dateValue,
                         sortStart: change.sort.startValue,
+                        sortEnd: change.sort.endValue,
                         sortSpace: change.sort.space,
-                        sortEvent: change.sort.event,
-                        entries: []
+                        sortType: change.sort.type,
+                        sortSetup: change.sort.setup,
+                        sortEvent: change.sort.event
                     });
                 }
 
                 const eventBucket = companyBucket.events.get(eventName);
                 eventBucket.entries.push(change);
-                if (change.sort.startValue < eventBucket.sortStart) {
+                if (compareNumbers(change.sort.dateValue, eventBucket.sortDate) < 0) {
+                    eventBucket.sortDate = change.sort.dateValue;
+                }
+                if (compareNumbers(change.sort.startValue, eventBucket.sortStart) < 0) {
                     eventBucket.sortStart = change.sort.startValue;
+                }
+                if (compareNumbers(change.sort.endValue, eventBucket.sortEnd) < 0) {
+                    eventBucket.sortEnd = change.sort.endValue;
                 }
                 if (change.sort.space.localeCompare(eventBucket.sortSpace) < 0) {
                     eventBucket.sortSpace = change.sort.space;
+                }
+                if (change.sort.type.localeCompare(eventBucket.sortType) < 0) {
+                    eventBucket.sortType = change.sort.type;
+                }
+                if (change.sort.setup.localeCompare(eventBucket.sortSetup) < 0) {
+                    eventBucket.sortSetup = change.sort.setup;
                 }
                 if (change.sort.event.localeCompare(eventBucket.sortEvent) < 0) {
                     eventBucket.sortEvent = change.sort.event;
                 }
             });
 
-            const sortedDates = Array.from(dateBuckets.values()).sort((a, b) => {
-                if (a.dateValue !== b.dateValue) return a.dateValue - b.dateValue;
-                return (a.dateDisplay || "").localeCompare(b.dateDisplay || "");
+            const anchorValue = overlap.start.getTime();
+
+            const companies = Array.from(companyBuckets.values()).map(bucket => {
+                const hasStart = Number.isFinite(bucket.earliestDate);
+                const hasEnd = Number.isFinite(bucket.latestDate);
+                bucket.inHouse = hasStart && hasEnd && bucket.earliestDate <= anchorValue && bucket.latestDate >= anchorValue;
+                bucket.startDateValue = hasStart ? bucket.earliestDate : Infinity;
+                return bucket;
+            }).sort((a, b) => {
+                if (a.inHouse !== b.inHouse) return a.inHouse ? -1 : 1;
+                const startCompare = compareNumbers(a.startDateValue, b.startDateValue);
+                if (startCompare) return startCompare;
+                const earliestStartCompare = compareNumbers(a.earliestStart, b.earliestStart);
+                if (earliestStartCompare) return earliestStartCompare;
+                return a.sortCompany.localeCompare(b.sortCompany);
             });
 
-            sortedDates.forEach(dateGroup => {
-                const label = (() => {
-                    if (dateGroup.dateDisplay) return dateGroup.dateDisplay;
-                    if (Number.isFinite(dateGroup.dateValue)) {
-                        return new Date(dateGroup.dateValue).toLocaleDateString("en-US", {
-                            weekday: "long",
-                            month: "long",
-                            day: "numeric",
-                            year: "numeric"
-                        });
-                    }
-                    return "Date Not Specified";
-                })();
+            companies.forEach(companyGroup => {
+                const compHeader = document.createElement("div");
+                compHeader.className = "company-header";
+                compHeader.textContent = companyGroup.company;
+                container.appendChild(compHeader);
 
-                const dateHeader = document.createElement("div");
-                dateHeader.className = "date-header";
-                dateHeader.textContent = label;
-                container.appendChild(dateHeader);
-
-                const companies = Array.from(dateGroup.companies.values()).sort((a, b) => {
-                    if (a.earliestStart !== b.earliestStart) return a.earliestStart - b.earliestStart;
-                    return a.sortCompany.localeCompare(b.sortCompany);
+                const events = Array.from(companyGroup.events.values()).sort((a, b) => {
+                    const dateCompare = compareNumbers(a.sortDate, b.sortDate);
+                    if (dateCompare) return dateCompare;
+                    const startCompare = compareNumbers(a.sortStart, b.sortStart);
+                    if (startCompare) return startCompare;
+                    const endCompare = compareNumbers(a.sortEnd, b.sortEnd);
+                    if (endCompare) return endCompare;
+                    const spaceComp = a.sortSpace.localeCompare(b.sortSpace);
+                    if (spaceComp) return spaceComp;
+                    const typeComp = a.sortType.localeCompare(b.sortType);
+                    if (typeComp) return typeComp;
+                    const setupComp = a.sortSetup.localeCompare(b.sortSetup);
+                    if (setupComp) return setupComp;
+                    return a.sortEvent.localeCompare(b.sortEvent);
                 });
 
-                companies.forEach(companyGroup => {
-                    const compHeader = document.createElement("div");
-                    compHeader.className = "company-header";
-                    compHeader.textContent = companyGroup.company;
-                    container.appendChild(compHeader);
+                events.forEach(eventGroup => {
+                    const evHeader = document.createElement("div");
+                    evHeader.className = "event-header";
+                    evHeader.textContent = eventGroup.event;
+                    container.appendChild(evHeader);
 
-                    const events = Array.from(companyGroup.events.values()).sort((a, b) => {
-                        if (a.sortStart !== b.sortStart) return a.sortStart - b.sortStart;
-                        const spaceComp = a.sortSpace.localeCompare(b.sortSpace);
-                        if (spaceComp) return spaceComp;
-                        return a.sortEvent.localeCompare(b.sortEvent);
+                    const entries = eventGroup.entries.slice().sort((a, b) => {
+                        const dateCompare = compareNumbers(a.sort.dateValue, b.sort.dateValue);
+                        if (dateCompare) return dateCompare;
+                        const startCompare = compareNumbers(a.sort.startValue, b.sort.startValue);
+                        if (startCompare) return startCompare;
+                        const endCompare = compareNumbers(a.sort.endValue, b.sort.endValue);
+                        if (endCompare) return endCompare;
+                        const headerComp = a.header.localeCompare(b.header);
+                        if (headerComp) return headerComp;
+                        return (a.pas || "").localeCompare(b.pas || "");
                     });
 
-                    events.forEach(eventGroup => {
-                        const evHeader = document.createElement("div");
-                        evHeader.className = "event-header";
-                        evHeader.textContent = eventGroup.event;
-                        container.appendChild(evHeader);
-
-                        const entries = eventGroup.entries.slice().sort((a, b) => {
-                            if (a.sort.startValue !== b.sort.startValue) return a.sort.startValue - b.sort.startValue;
-                            const headerComp = a.header.localeCompare(b.header);
-                            if (headerComp) return headerComp;
-                            return (a.pas || "").localeCompare(b.pas || "");
-                        });
-
-                        entries.forEach(change => {
-                            const card = document.createElement("div");
-                            card.className = "change-card";
-                            card.innerHTML = `
+                    entries.forEach(change => {
+                        const card = document.createElement("div");
+                        card.className = "change-card";
+                        card.innerHTML = `
             <h4>${change.header}${change.pas ? ` · ${change.pas}` : ""}</h4>
             <div style="font-size:.8rem;color:#555;margin-bottom:4px;">${change.date}</div>
             <ul>
@@ -2350,8 +2371,7 @@
                                 return `<li>${label}${prev}${arrow}${newest}</li>`;
                             }).join("")}
             </ul>`;
-                            container.appendChild(card);
-                        });
+                        container.appendChild(card);
                     });
                 });
             });

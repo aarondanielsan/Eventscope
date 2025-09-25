@@ -2015,28 +2015,83 @@
                 return;
             }
 
+            const compareNumbers = (a, b) => {
+                const valA = Number.isFinite(a) ? a : Infinity;
+                const valB = Number.isFinite(b) ? b : Infinity;
+                if (valA === valB) return 0;
+                return valA < valB ? -1 : 1;
+            };
+
+            const compareStable = (a, b) => {
+                const dateDiff = compareNumbers(a.dateValue, b.dateValue);
+                if (dateDiff) return dateDiff;
+                const startDiff = compareNumbers(a.startSortValue, b.startSortValue);
+                if (startDiff) return startDiff;
+                const endDiff = compareNumbers(a.normalized.endMinutes ?? Infinity, b.normalized.endMinutes ?? Infinity);
+                if (endDiff) return endDiff;
+                const spaceDiff = a.normalized.space.localeCompare(b.normalized.space);
+                if (spaceDiff) return spaceDiff;
+                const typeDiff = a.normalized.type.localeCompare(b.normalized.type);
+                if (typeDiff) return typeDiff;
+                const setupDiff = a.normalized.setup.localeCompare(b.normalized.setup);
+                if (setupDiff) return setupDiff;
+                const postDiff = a.normalized.postAs.localeCompare(b.normalized.postAs);
+                if (postDiff) return postDiff;
+                const companyDiff = a.normalized.company.localeCompare(b.normalized.company);
+                if (companyDiff) return companyDiff;
+                return a.normalized.event.localeCompare(b.normalized.event);
+            };
+
             const sortForComparison = events => {
-                events.sort((a, b) => {
-                    const companyDiff = a.normalized.company.localeCompare(b.normalized.company);
-                    if (companyDiff) return companyDiff;
-                    const dateDiff = a.dateValue - b.dateValue;
-                    if (dateDiff) return dateDiff;
-                    const startDiff = a.startSortValue - b.startSortValue;
-                    if (startDiff) return startDiff;
-                    const endDiff = (a.normalized.endMinutes ?? Infinity) - (b.normalized.endMinutes ?? Infinity);
-                    if (endDiff) return endDiff;
-                    const spaceDiff = a.normalized.space.localeCompare(b.normalized.space);
-                    if (spaceDiff) return spaceDiff;
-                    const typeDiff = a.normalized.type.localeCompare(b.normalized.type);
-                    if (typeDiff) return typeDiff;
-                    const setupDiff = a.normalized.setup.localeCompare(b.normalized.setup);
-                    if (setupDiff) return setupDiff;
-                    return a.normalized.event.localeCompare(b.normalized.event);
-                });
+                events.sort(compareStable);
             };
 
             sortForComparison(previousEvents);
             sortForComparison(newestEvents);
+
+            const computeReportSignature = events => {
+                const canonical = events.map(ev => ({
+                    date: ev.normalized.dateKey || "",
+                    start: ev.normalized.start || "",
+                    end: ev.normalized.end || "",
+                    space: ev.normalized.space || "",
+                    type: ev.normalized.type || "",
+                    setup: ev.normalized.setup || "",
+                    postAs: ev.normalized.postAs || "",
+                    status: ev.normalized.status || "",
+                    company: ev.normalized.company || "",
+                    event: ev.normalized.event || ""
+                })).sort((a, b) => {
+                    const dateDiff = a.date.localeCompare(b.date);
+                    if (dateDiff) return dateDiff;
+                    const startDiff = a.start.localeCompare(b.start);
+                    if (startDiff) return startDiff;
+                    const endDiff = a.end.localeCompare(b.end);
+                    if (endDiff) return endDiff;
+                    const spaceDiff = a.space.localeCompare(b.space);
+                    if (spaceDiff) return spaceDiff;
+                    const typeDiff = a.type.localeCompare(b.type);
+                    if (typeDiff) return typeDiff;
+                    const setupDiff = a.setup.localeCompare(b.setup);
+                    if (setupDiff) return setupDiff;
+                    const postDiff = a.postAs.localeCompare(b.postAs);
+                    if (postDiff) return postDiff;
+                    const statusDiff = a.status.localeCompare(b.status);
+                    if (statusDiff) return statusDiff;
+                    const companyDiff = a.company.localeCompare(b.company);
+                    if (companyDiff) return companyDiff;
+                    return a.event.localeCompare(b.event);
+                });
+                return JSON.stringify(canonical);
+            };
+
+            const previousSignature = computeReportSignature(previousEvents);
+            const newestSignature = computeReportSignature(newestEvents);
+
+            if (previousSignature === newestSignature) {
+                container.innerHTML = "<p style='opacity:.7'>✅ No changes detected between the reports.</p>";
+                return;
+            }
 
             const byIdentity = new Map();
             const byName = new Map();
@@ -2181,6 +2236,7 @@
                     space: base?.normalized?.space || "",
                     type: base?.normalized?.type || "",
                     setup: base?.normalized?.setup || "",
+                    postAs: base?.normalized?.postAs || "",
                     event: base?.normalized?.event || "",
                     company: base?.normalized?.company || ""
                 };
@@ -2223,13 +2279,6 @@
                 return;
             }
 
-            const compareNumbers = (a, b) => {
-                const valA = Number.isFinite(a) ? a : Infinity;
-                const valB = Number.isFinite(b) ? b : Infinity;
-                if (valA === valB) return 0;
-                return valA < valB ? -1 : 1;
-            };
-
             const companyBuckets = new Map();
 
             changes.forEach(change => {
@@ -2267,6 +2316,7 @@
                         sortSpace: change.sort.space,
                         sortType: change.sort.type,
                         sortSetup: change.sort.setup,
+                        sortPostAs: change.sort.postAs,
                         sortEvent: change.sort.event
                     });
                 }
@@ -2290,6 +2340,9 @@
                 }
                 if (change.sort.setup.localeCompare(eventBucket.sortSetup) < 0) {
                     eventBucket.sortSetup = change.sort.setup;
+                }
+                if (change.sort.postAs.localeCompare(eventBucket.sortPostAs) < 0) {
+                    eventBucket.sortPostAs = change.sort.postAs;
                 }
                 if (change.sort.event.localeCompare(eventBucket.sortEvent) < 0) {
                     eventBucket.sortEvent = change.sort.event;
@@ -2332,6 +2385,8 @@
                     if (typeComp) return typeComp;
                     const setupComp = a.sortSetup.localeCompare(b.sortSetup);
                     if (setupComp) return setupComp;
+                    const postComp = a.sortPostAs.localeCompare(b.sortPostAs);
+                    if (postComp) return postComp;
                     return a.sortEvent.localeCompare(b.sortEvent);
                 });
 
@@ -2348,6 +2403,8 @@
                         if (startCompare) return startCompare;
                         const endCompare = compareNumbers(a.sort.endValue, b.sort.endValue);
                         if (endCompare) return endCompare;
+                        const postCompare = a.sort.postAs.localeCompare(b.sort.postAs);
+                        if (postCompare) return postCompare;
                         const headerComp = a.header.localeCompare(b.header);
                         if (headerComp) return headerComp;
                         return (a.pas || "").localeCompare(b.pas || "");

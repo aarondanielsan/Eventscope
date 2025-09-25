@@ -1864,44 +1864,24 @@
 
         function createEmptyLighthouseSummary(dateISO, payload, options = {}) {
             const requested = options?.requestedDate || dateISO;
+            const topLevelKeys = payload && typeof payload === 'object' ? Object.keys(payload) : [];
             return {
                 date: requested,
                 raw: payload,
                 avActions: [],
-                byCompany: new Map(),
+                jobs: [],
                 byRoom: new Map(),
-                gearTotals: new Map(),
+                byCompany: new Map(),
                 contacts: new Map(),
-                jobs: new Set(),
-                packageHeaders: new Map(),
+                gearTotals: new Map(),
+                rooms: new Map(),
                 diagnostics: {
                     requestedDate: requested,
                     payloadDate: options?.payloadDate || null,
-                    topLevelKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+                    topLevelKeys,
                     roomActionsConsidered: 0,
-                    roomActionCount: 0,
-                    jobsConsidered: 0,
-                    jobCount: 0,
-                    jobsMatchedDate: 0,
-                    jobsMatchedRange: 0,
-                    jobsMatchedEvents: 0,
-                    jobsDroppedByDate: 0,
-                    jobsDroppedByEvents: 0,
-                    jobsWithoutDateInfo: 0,
-                    jobsWithoutEventForDate: 0,
-                    jobsWithEquipment: 0,
-                    jobsWithoutEquipment: 0,
-                    usedStructuredRoomActions: false,
-                    fallbackListLength: 0,
-                    canonicalization: [],
-                    canonicalizationSeen: new Set(),
-                    matchedRoomKeys: new Set(),
-                    unmatchedRooms: [],
-                    jobDateMatches: [],
-                    jobDateDiscarded: [],
-                    jobLogs: [],
-                    matchedRoomActionDates: new Set(),
-                    matchedEventDates: new Set(),
+                    jobsMatched: 0,
+                    payloadFlowsheetDates: new Set(),
                 },
             };
         }
@@ -2621,317 +2601,149 @@
         }
 
         function jobMatchesRequestedDate(job, roomAction, targetISO) {
-            const container = { dates: new Set(), ranges: [], rangeKeys: new Set() };
-            collectDateCandidatesFromSource(container, roomAction);
-            collectDateCandidatesFromSource(container, job);
-            const orderSpan = extractOrderSpanISO(job, roomAction);
-            if (orderSpan.start || orderSpan.end) {
-                const orderKey = `order|${orderSpan.start || ''}|${orderSpan.end || ''}`;
-                if (!container.rangeKeys.has(orderKey)) {
-                    container.rangeKeys.add(orderKey);
-                    container.ranges.push({ start: orderSpan.start || null, end: orderSpan.end || null, source: 'order' });
-                }
-            }
-            const eventDates = collectFlowsheetEventDates(job, roomAction);
-            eventDates.forEach(date => container.dates.add(date));
-            const singleDates = Array.from(container.dates.values());
-            const ranges = container.ranges.slice();
             const flowsheetDate = firstISODateFromCandidates([
-                roomAction?.flowsheetDate,
-                roomAction?.flowDate,
-                roomAction?.date,
-                roomAction?.Day,
                 job?.flowsheetDate,
                 job?.flowDate,
                 job?.date,
                 job?.Day,
+                roomAction?.flowsheetDate,
+                roomAction?.flowDate,
+                roomAction?.date,
+                roomAction?.Day,
             ]);
-            const normalizedTarget = targetISO || null;
-            const hasDateInfo = Boolean(flowsheetDate) || singleDates.length > 0 || ranges.length > 0;
-            if (!normalizedTarget) {
-                return {
-                    matches: true,
-                    baseMatch: true,
-                    rangeMatch: false,
-                    eventMatch: false,
-                    hadDateInfo: hasDateInfo,
-                    candidateDates: singleDates,
-                    ranges,
-                    matchedDates: [],
-                    eventDates,
-                    matchedEvents: [],
-                    span: orderSpan,
-                    flowsheetDate,
-                    flowsheetMatch: Boolean(flowsheetDate),
-                    usedFallback: false,
-                };
-            }
-            let baseMatch = false;
-            let rangeMatch = false;
-            let flowsheetMatch = false;
-            let usedFallback = false;
-            const matchedDates = new Set();
-            if (flowsheetDate) {
-                flowsheetMatch = flowsheetDate === normalizedTarget;
-                if (flowsheetMatch) {
-                    baseMatch = true;
-                    matchedDates.add(flowsheetDate);
-                }
-            }
-            singleDates.forEach(date => {
-                if (date === normalizedTarget) {
-                    if (!flowsheetMatch) usedFallback = true;
-                    baseMatch = true;
-                    matchedDates.add(date);
-                }
-            });
-            if (orderSpan.start || orderSpan.end) {
-                if (isTargetWithinRange(normalizedTarget, orderSpan)) {
-                    if (!flowsheetMatch) usedFallback = true;
-                    baseMatch = true;
-                    rangeMatch = true;
-                    matchedDates.add(orderSpan.start || orderSpan.end || normalizedTarget);
-                }
-            }
-            ranges.forEach(range => {
-                if (!range) return;
-                if (isTargetWithinRange(normalizedTarget, range)) {
-                    if (!flowsheetMatch) usedFallback = true;
-                    baseMatch = true;
-                    if (range.source === 'order') rangeMatch = true;
-                    matchedDates.add(range.start || range.end || normalizedTarget);
-                }
-            });
-            const matchedEvents = eventDates.filter(date => date === normalizedTarget);
-            const hasEventDates = eventDates.length > 0;
-            const eventMatch = matchedEvents.length > 0;
-            if (eventMatch) {
-                matchedEvents.forEach(date => matchedDates.add(date));
-            }
-            let matches = baseMatch;
-            if (hasEventDates) {
-                matches = matches && eventMatch;
-            }
-            if (!hasDateInfo) {
-                matches = true;
-            }
+            const matches = Boolean(targetISO && flowsheetDate && flowsheetDate === targetISO);
             return {
                 matches,
-                baseMatch,
-                rangeMatch,
-                eventMatch,
-                hadDateInfo: hasDateInfo,
-                candidateDates: singleDates,
-                ranges,
-                matchedDates: Array.from(matchedDates.values()),
-                eventDates,
-                matchedEvents,
-                span: orderSpan,
                 flowsheetDate,
-                flowsheetMatch,
-                usedFallback,
             };
         }
 
         function processStructuredRoomActions(summary, roomActions, dateISO, options = {}) {
             const diagnostics = summary?.diagnostics;
             const loggingEnabled = !options?.suppressLogs;
-            const logTotals = loggingEnabled ? { total: 0, matched: 0, unmatched: [] } : null;
-            const diagRoomDateSet = diagnostics?.matchedRoomActionDates instanceof Set ? diagnostics.matchedRoomActionDates : null;
-            const diagEventDateSet = diagnostics?.matchedEventDates instanceof Set ? diagnostics.matchedEventDates : null;
+            const flowsheetSet = diagnostics?.payloadFlowsheetDates instanceof Set ? diagnostics.payloadFlowsheetDates : null;
+            let considered = 0;
+            let matched = 0;
+
             roomActions.forEach(roomAction => {
+                considered += 1;
                 if (diagnostics) {
                     diagnostics.roomActionsConsidered += 1;
                 }
-                const roomActionDate = firstISODateFromCandidates([
+
+                const flowsheetDate = firstISODateFromCandidates([
                     roomAction?.flowsheetDate,
                     roomAction?.flowDate,
                     roomAction?.date,
                     roomAction?.Day,
                 ]);
-                const roomGuid = roomAction?.roomGuid || roomAction?.roomId || roomAction?.room?.roomGuid;
-                const rawRoomName = roomAction?.roomName || roomAction?.room?.name || roomAction?.spaceName || roomAction?.name || '';
-                const canonical = canonicalizeRoomFromGuide(roomGuid, rawRoomName);
-                const roomName = canonical.name || normalizeRoomDisplayName(rawRoomName) || rawRoomName || '';
-                const roomKey = canonical.key || canonicalizeRoomKey(roomName);
-                if (diagnostics) {
-                    const logKey = `${roomGuid || ''}|${rawRoomName || ''}|${roomKey || ''}`;
-                    if (!diagnostics.canonicalizationSeen.has(logKey)) {
-                        diagnostics.canonicalizationSeen.add(logKey);
-                        diagnostics.canonicalization.push({
-                            roomGuid: roomGuid || null,
-                            rawName: rawRoomName || '',
-                            canonicalName: roomName || '',
-                            canonicalKey: roomKey || '',
-                            matched: Boolean(roomKey),
-                        });
-                    }
+                if (flowsheetDate && flowsheetSet) {
+                    flowsheetSet.add(flowsheetDate);
                 }
-                const jobs = extractRoomJobs(roomAction);
-                const matchingJobs = [];
-                jobs.forEach(job => {
-                    if (diagnostics) diagnostics.jobsConsidered += 1;
-                    const matchInfo = jobMatchesRequestedDate(job, roomAction, dateISO);
-                    if (!matchInfo.hadDateInfo && diagnostics) {
-                        diagnostics.jobsWithoutDateInfo += 1;
-                    }
-                    const jobNameResolved = extractJob(job) || extractJob(roomAction) || '';
-                    const logSpanStart = matchInfo.span?.start || (matchInfo.ranges?.[0]?.start || null);
-                    const logSpanEnd = matchInfo.span?.end || (matchInfo.ranges?.[0]?.end || null);
-                    const logStatus = matchInfo.matches ? 'INCLUDED' : 'EXCLUDED';
-                    const jobActionId = job?.jobActionId ?? roomAction?.jobActionId ?? job?.id ?? roomAction?.id ?? null;
-                    const orderName = job?.orderName || roomAction?.orderName || jobNameResolved || '';
-                    const flowsheetDateDisplay = matchInfo.flowsheetDate || parseDateValueToISO(roomAction?.flowsheetDate) || null;
-                    if (loggingEnabled) {
-                        const eventSummary = matchInfo.eventDates?.length
-                            ? `events=${matchInfo.eventDates.join(', ')}${matchInfo.eventMatch ? '' : ' (no match on requested date)'}`
-                            : 'events=none';
-                        console.log(
-                            `[Lighthouse] Job ${jobActionId ?? 'unknown'} "${orderName || jobNameResolved || 'Unnamed Job'}" ` +
-                            `flowsheetDate=${flowsheetDateDisplay || 'none'} requested=${dateISO} → ${logStatus}. ` +
-                            `Span ${logSpanStart || 'unknown'} → ${logSpanEnd || 'unknown'}, ${eventSummary}.`
-                        );
-                    }
-                    if (logTotals) {
-                        logTotals.total += 1;
-                        if (matchInfo.matches) {
-                            logTotals.matched += 1;
-                        } else {
-                            logTotals.unmatched.push({
-                                job: jobNameResolved || 'Unnamed Job',
-                                spanStart: logSpanStart || null,
-                                spanEnd: logSpanEnd || null,
-                                eventDates: matchInfo.eventDates || [],
-                                flowsheetDate: matchInfo.flowsheetDate || null,
-                            });
-                        }
-                    }
-                    if (diagnostics && diagnostics.jobLogs && diagnostics.jobLogs.length < 500) {
-                        diagnostics.jobLogs.push({
-                            job: jobNameResolved || '',
-                            room: rawRoomName || roomName || '',
-                            requestedDate: dateISO,
-                            spanStart: logSpanStart || null,
-                            spanEnd: logSpanEnd || null,
-                            matches: matchInfo.matches,
-                            rangeMatch: matchInfo.rangeMatch,
-                            eventMatch: matchInfo.eventMatch,
-                            eventDates: matchInfo.eventDates || [],
-                            flowsheetDate: matchInfo.flowsheetDate || null,
-                            flowsheetMatch: matchInfo.flowsheetMatch || false,
-                            usedFallback: matchInfo.usedFallback || false,
-                        });
-                    }
-                    if (!matchInfo.matches) {
-                        if (diagnostics) {
-                            if (!matchInfo.baseMatch) diagnostics.jobsDroppedByDate += 1;
-                            if (matchInfo.baseMatch && matchInfo.eventDates?.length && !matchInfo.eventMatch) {
-                                diagnostics.jobsDroppedByEvents += 1;
-                            }
-                            if (diagnostics.jobDateDiscarded.length < 200) {
-                                diagnostics.jobDateDiscarded.push({
-                                    job: jobNameResolved || '',
-                                    room: rawRoomName || roomName || '',
-                                    dates: matchInfo.candidateDates,
-                                    ranges: matchInfo.ranges.map(r => ({ start: r?.start || null, end: r?.end || null })),
-                                    span: matchInfo.span || null,
-                                    eventDates: matchInfo.eventDates || [],
-                                });
-                            }
-                        }
-                        return;
-                    }
-                    matchingJobs.push({ job, jobName: jobNameResolved });
-                    if (diagnostics) {
-                        diagnostics.jobCount += 1;
-                        diagnostics.jobsMatchedDate += 1;
-                        if (matchInfo.rangeMatch) diagnostics.jobsMatchedRange += 1;
-                        if (matchInfo.eventMatch) diagnostics.jobsMatchedEvents += 1;
-                        else if (matchInfo.eventDates && matchInfo.eventDates.length) diagnostics.jobsWithoutEventForDate += 1;
-                        if (matchInfo.flowsheetMatch && roomActionDate && diagRoomDateSet) {
-                            diagRoomDateSet.add(roomActionDate);
-                        }
-                        if (diagEventDateSet && Array.isArray(matchInfo.matchedEvents)) {
-                            matchInfo.matchedEvents.forEach(eventDate => {
-                                if (eventDate) diagEventDateSet.add(eventDate);
-                            });
-                        }
-                        if (Array.isArray(matchInfo.matchedDates) && matchInfo.matchedDates.length) {
-                            if (diagnostics.jobDateMatches.length < 200) {
-                                diagnostics.jobDateMatches.push({
-                                    job: jobNameResolved || '',
-                                    room: rawRoomName || roomName || '',
-                                    matchedDates: matchInfo.matchedDates,
-                                });
-                            }
-                        }
-                    }
-                });
-                if (!matchingJobs.length) return;
-                const roomEntry = ensureRoomEntry(summary, roomKey, roomName, canonical.guid);
-                if (diagnostics) {
-                    diagnostics.roomActionCount += 1;
-                    if (roomKey) {
-                        diagnostics.matchedRoomKeys.add(roomKey);
-                    } else {
-                        diagnostics.unmatchedRooms.push({ roomGuid: roomGuid || null, rawName: rawRoomName || '' });
-                    }
+
+                const jobActionId = roomAction?.jobActionId ?? roomAction?.id ?? null;
+                const orderName = roomAction?.orderName || roomAction?.jobName || roomAction?.name || '';
+                const clientName = roomAction?.clientName || roomAction?.customerName || roomAction?.accountName || '';
+                const rawRoomName = (roomAction?.roomName || roomAction?.spaceName || roomAction?.name || '').toString().trim();
+                const roomName = rawRoomName || 'Unassigned';
+
+                const matches = flowsheetDate === dateISO;
+                if (loggingEnabled) {
+                    console.log(
+                        `[Lighthouse] Job ${jobActionId ?? 'unknown'} "${orderName || 'Unnamed Job'}" ` +
+                        `flowsheetDate=${flowsheetDate || 'none'} requested=${dateISO} → ${matches ? 'INCLUDED' : 'EXCLUDED'}.`
+                    );
                 }
-                matchingJobs.forEach(({ job, jobName }, index) => {
-                    const company = extractJobCompany(roomAction, job);
-                    const jobOptions = {};
-                    if (!roomKey) {
-                        jobOptions.roomHint = rawRoomName || roomName || 'Unmatched Room';
-                        jobOptions.uniqueSuffix = roomGuid || rawRoomName || `${jobName || 'job'}-${index + 1}`;
-                    }
-                    const jobEntry = ensureJobEntry(roomEntry, jobName, company, jobOptions);
-                    const contacts = extractJobContactsList(job);
-                    if (!contacts.length) {
-                        const fallback = extractContact(job);
-                        if (fallback) contacts.push(fallback);
-                    }
-                    addContactsToSummary(summary, jobEntry, contacts);
-                    const sections = extractEquipmentSections(job);
-                    if (diagnostics) {
-                        if (sections.length) diagnostics.jobsWithEquipment += 1;
-                        else diagnostics.jobsWithoutEquipment += 1;
-                    }
-                    if (!sections.length) return;
-                    sections.forEach(section => {
-                        const categoryName = extractSectionName(section) || 'Equipment';
-                        const categoryKey = canonicalizeText(categoryName) || `category-${jobEntry.categories.size}`;
-                        if (!jobEntry.categories.has(categoryKey)) {
-                            jobEntry.categories.set(categoryKey, { key: categoryKey, name: categoryName, items: [] });
-                        }
-                        const categoryEntry = jobEntry.categories.get(categoryKey);
-                        const items = extractEquipmentItems(section);
-                        items.forEach(item => {
-                            processEquipmentItem(summary, roomEntry, jobEntry, categoryEntry, item, categoryName, 0, null);
-                        });
+
+                if (!matches) {
+                    return;
+                }
+
+                matched += 1;
+                if (diagnostics) {
+                    diagnostics.jobsMatched += 1;
+                }
+
+                const jobEntry = {
+                    jobActionId,
+                    orderName,
+                    clientName,
+                    roomName,
+                    flowsheetDate,
+                    equipmentSections: extractSimplifiedEquipmentSections(roomAction),
+                };
+
+                summary.jobs.push(jobEntry);
+
+                const roomKey = canonicalizeText(roomName);
+                if (!summary.rooms.has(roomKey)) {
+                    summary.rooms.set(roomKey, { roomName, jobs: [] });
+                }
+                summary.rooms.get(roomKey).jobs.push(jobEntry);
+                if (!summary.byRoom.has(roomKey)) {
+                    summary.byRoom.set(roomKey, { name: roomName, jobs: [] });
+                }
+                summary.byRoom.get(roomKey).jobs.push(jobEntry);
+            });
+
+            if (diagnostics) {
+                diagnostics.roomActionsConsidered = considered;
+                diagnostics.jobsMatched = matched;
+                if (flowsheetSet) {
+                    diagnostics.payloadFlowsheetDates = Array.from(flowsheetSet.values());
+                }
+            }
+
+            if (loggingEnabled) {
+                const flowsheetDates = diagnostics?.payloadFlowsheetDates;
+                if (Array.isArray(flowsheetDates) && flowsheetDates.length) {
+                    console.log(`[Lighthouse] Payload flowsheet dates: ${flowsheetDates.join(', ')}`);
+                }
+                console.log(
+                    `[Lighthouse] Requested ${dateISO}, payload contained ${considered} roomActions, ${matched} matched for ${dateISO}.`
+                );
+            }
+
+            summary.avActions = Array.isArray(summary.jobs) ? summary.jobs.slice() : [];
+        }
+
+        function extractSimplifiedEquipmentSections(roomAction) {
+            const sections = Array.isArray(roomAction?.equipmentSections) ? roomAction.equipmentSections : [];
+            const results = [];
+            sections.forEach(section => {
+                if (!section) return;
+                const name = section?.name || section?.category || 'Equipment';
+                const items = extractSimplifiedEquipmentItems(section);
+                if (items.length) {
+                    results.push({ name, items });
+                }
+            });
+            return results;
+        }
+
+        function extractSimplifiedEquipmentItems(section) {
+            const lists = [
+                section?.items,
+                section?.equipmentItems,
+                section?.gear,
+                section?.lines,
+            ];
+            const results = [];
+            lists.forEach(list => {
+                if (!Array.isArray(list)) return;
+                list.forEach(item => {
+                    if (!item) return;
+                    const description = (item?.description || item?.itemName || item?.name || '').toString().trim();
+                    if (!description) return;
+                    const quantityRaw = item?.quantity ?? item?.qty ?? item?.count ?? 0;
+                    const quantity = Number.isFinite(Number(quantityRaw)) ? Number(quantityRaw) : quantityRaw;
+                    results.push({
+                        description,
+                        quantity,
                     });
                 });
             });
-            if (loggingEnabled && logTotals && logTotals.total) {
-                const unmatchedCount = logTotals.total - logTotals.matched;
-                const matchedRoomDates = diagRoomDateSet ? Array.from(diagRoomDateSet.values()) : [];
-                const matchedEventDates = diagEventDateSet ? Array.from(diagEventDateSet.values()) : [];
-                const roomDatesDisplay = matchedRoomDates.length ? matchedRoomDates.join(', ') : 'none';
-                const eventDatesDisplay = matchedEventDates.length ? matchedEventDates.join(', ') : 'none';
-                console.log(
-                    `[Lighthouse] Requested ${dateISO}: roomAction matches [${roomDatesDisplay}], event matches [${eventDatesDisplay}], ` +
-                    `jobs included ${logTotals.matched}, dropped ${unmatchedCount}.`
-                );
-                if (unmatchedCount) {
-                    logTotals.unmatched.slice(0, 20).forEach(entry => {
-                        const spanLabel = `${entry.spanStart || 'unknown'} → ${entry.spanEnd || 'unknown'}`;
-                        const eventSummary = entry.eventDates && entry.eventDates.length ? `events: ${entry.eventDates.join(', ')}` : 'no events';
-                        console.log(`[Lighthouse] Unmatched job "${entry.job}" span ${spanLabel} (${eventSummary}).`);
-                    });
-                    if (logTotals.unmatched.length > 20) {
-                        console.log(`[Lighthouse] ... ${logTotals.unmatched.length - 20} additional unmatched jobs not shown.`);
-                    }
-                }
-            }
+            return results;
         }
 
         function processGenericActions(summary, list, dateISO) {
@@ -3018,20 +2830,14 @@
         function computeLighthouseSummaryForDate(dateISO, payload, options = {}) {
             const summary = createEmptyLighthouseSummary(dateISO, payload, options);
             const roomActions = extractStructuredRoomActions(payload);
-            if (summary.diagnostics) {
-                summary.diagnostics.usedStructuredRoomActions = roomActions.length > 0;
-                if (options?.payloadDate && !summary.diagnostics.payloadDate) {
-                    summary.diagnostics.payloadDate = options.payloadDate;
-                }
+            if (summary.diagnostics && options?.payloadDate && !summary.diagnostics.payloadDate) {
+                summary.diagnostics.payloadDate = options.payloadDate;
             }
             if (roomActions.length) {
                 processStructuredRoomActions(summary, roomActions, dateISO, options);
-            } else {
-                const list = listFromPayload(payload);
-                if (summary.diagnostics) {
-                    summary.diagnostics.fallbackListLength = list.length;
-                }
-                processGenericActions(summary, list, dateISO);
+            }
+            if (summary.diagnostics?.payloadFlowsheetDates instanceof Set) {
+                summary.diagnostics.payloadFlowsheetDates = Array.from(summary.diagnostics.payloadFlowsheetDates.values());
             }
             return summary;
         }
@@ -3165,104 +2971,23 @@
             }
             const shouldLogDetails = options.log === true;
             const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
-            if (shouldLogDetails) {
-                console.log('[Lighthouse] Raw payload snapshot:', payload);
-            }
+            console.log('[Lighthouse] Raw payload snapshot:', payload);
             const summary = await saveLighthousePayload(dateISO, payload, { suppressLogs: !shouldLogDetails });
             const diagnostics = summary.diagnostics || {};
 
+            const payloadKeys = diagnostics.topLevelKeys || (payload && typeof payload === 'object' ? Object.keys(payload) : []);
+            const flowsheetDates = Array.isArray(diagnostics.payloadFlowsheetDates) ? diagnostics.payloadFlowsheetDates : [];
+            const roomActionsCount = diagnostics.roomActionsConsidered || 0;
+            const matchedJobs = Array.isArray(summary.jobs) ? summary.jobs.length : 0;
+            console.log(`[Lighthouse] Requested ${dateISO}, payload contained ${roomActionsCount} roomActions, ${matchedJobs} matched for ${dateISO}.`);
+            if (flowsheetDates.length) {
+                console.log(`[Lighthouse] Payload flowsheet dates: ${flowsheetDates.join(', ')}`);
+            }
             if (shouldLogDetails) {
-                const payloadKeys = diagnostics.topLevelKeys || (payload && typeof payload === 'object' ? Object.keys(payload) : []);
                 console.log('[Lighthouse] Payload top-level keys:', payloadKeys);
-                console.log('[Lighthouse] Structured roomActions count:', diagnostics.roomActionCount || 0);
-                const totalJobsSeen = typeof diagnostics.jobsConsidered === 'number' ? diagnostics.jobsConsidered : diagnostics.jobCount || 0;
-                console.log('[Lighthouse] Jobs detected in payload:', totalJobsSeen);
-                if (!diagnostics.usedStructuredRoomActions && diagnostics.fallbackListLength) {
-                    console.log('[Lighthouse] Fallback action list length:', diagnostics.fallbackListLength);
-                }
             }
 
-            const matchedRoomDates = diagnostics.matchedRoomActionDates instanceof Set
-                ? Array.from(diagnostics.matchedRoomActionDates.values())
-                : (Array.isArray(diagnostics.matchedRoomActionDates) ? diagnostics.matchedRoomActionDates : []);
-            const matchedEventDates = diagnostics.matchedEventDates instanceof Set
-                ? Array.from(diagnostics.matchedEventDates.values())
-                : (Array.isArray(diagnostics.matchedEventDates) ? diagnostics.matchedEventDates : []);
-            const totalJobsSeen = typeof diagnostics.jobsConsidered === 'number'
-                ? diagnostics.jobsConsidered
-                : diagnostics.jobCount || 0;
-            const includedJobs = diagnostics.jobCount || 0;
-            const droppedJobs = Math.max(0, totalJobsSeen - includedJobs);
-            const roomDisplay = matchedRoomDates.length ? matchedRoomDates.join(', ') : 'none';
-            const eventDisplay = matchedEventDates.length ? matchedEventDates.join(', ') : 'none';
-            console.log(`[Lighthouse] Requested ${dateISO}: roomAction matches [${roomDisplay}], event matches [${eventDisplay}], jobs included ${includedJobs}, dropped ${droppedJobs}.`);
-
-            if (shouldLogDetails) {
-                const payloadDateForLog = diagnostics.payloadDate || diagnostics.storeKey || resolveLighthouseDateKey(payload, dateISO);
-                const jobsMatchedForDate = diagnostics.jobsMatchedDate || diagnostics.jobCount || 0;
-                const jobsDroppedByEvents = diagnostics.jobsDroppedByEvents || 0;
-                const inferredDropByDate = Math.max(0, totalJobsSeen - jobsMatchedForDate - jobsDroppedByEvents);
-                const jobsDroppedByDate = diagnostics.jobsDroppedByDate || inferredDropByDate;
-                console.log(
-                    `[Lighthouse] Requested ${dateISO}, payload ${payloadDateForLog || 'unknown'}, ${totalJobsSeen} jobs found, ${jobsMatchedForDate} matched for requested date` +
-                    (jobsDroppedByDate ? `, ${jobsDroppedByDate} filtered by date` : '') +
-                    (jobsDroppedByEvents ? `; ${jobsDroppedByEvents} filtered by events` : '') +
-                    '.'
-                );
-                if (diagnostics.jobsWithoutDateInfo) {
-                    console.log('[Lighthouse] Jobs without explicit date info treated as matches:', diagnostics.jobsWithoutDateInfo);
-                }
-                if (Array.isArray(diagnostics.jobDateDiscarded) && diagnostics.jobDateDiscarded.length) {
-                    const discardedSample = diagnostics.jobDateDiscarded.slice(0, 5);
-                    console.log('[Lighthouse] Jobs discarded due to date mismatch:', {
-                        count: diagnostics.jobDateDiscarded.length,
-                        sample: discardedSample,
-                    });
-                }
-                if (Array.isArray(diagnostics.jobDateMatches) && diagnostics.jobDateMatches.length) {
-                    const matchSample = diagnostics.jobDateMatches.slice(0, 5);
-                    console.log('[Lighthouse] Jobs matched by date sample:', {
-                        count: diagnostics.jobDateMatches.length,
-                        sample: matchSample,
-                    });
-                }
-                const matchedRooms = diagnostics.matchedRoomKeys instanceof Set ? Array.from(diagnostics.matchedRoomKeys.values()) : (Array.isArray(diagnostics.matchedRoomKeys) ? diagnostics.matchedRoomKeys : []);
-                const unmatchedRooms = Array.isArray(diagnostics.unmatchedRooms) ? diagnostics.unmatchedRooms : [];
-                console.log('[Lighthouse] Summary diagnostics:', {
-                    requestedDate: diagnostics.requestedDate || dateISO,
-                    storeKey: diagnostics.storeKey || diagnostics.payloadDate || null,
-                    roomActionsConsidered: diagnostics.roomActionsConsidered || 0,
-                    roomActionCount: diagnostics.roomActionCount || 0,
-                    jobCount: diagnostics.jobCount || 0,
-                    jobsConsidered: diagnostics.jobsConsidered || 0,
-                    jobsMatchedDate: diagnostics.jobsMatchedDate || diagnostics.jobCount || 0,
-                    jobsDroppedByDate: diagnostics.jobsDroppedByDate || 0,
-                    jobsDroppedByEvents: diagnostics.jobsDroppedByEvents || 0,
-                    jobsWithoutDateInfo: diagnostics.jobsWithoutDateInfo || 0,
-                    jobsWithEquipment: diagnostics.jobsWithEquipment || 0,
-                    jobsWithoutEquipment: diagnostics.jobsWithoutEquipment || 0,
-                    matchedRoomKeys: matchedRooms,
-                    unmatchedRooms,
-                });
-                if (Array.isArray(diagnostics.canonicalization) && diagnostics.canonicalization.length) {
-                    if (typeof console.table === 'function') {
-                        console.table(diagnostics.canonicalization.map(entry => ({
-                            roomGuid: entry.roomGuid || '',
-                            rawName: entry.rawName || '',
-                            canonicalName: entry.canonicalName || '',
-                            canonicalKey: entry.canonicalKey || '',
-                            matched: entry.matched,
-                        })));
-                    } else {
-                        console.log('[Lighthouse] Canonicalization results:', diagnostics.canonicalization);
-                    }
-                } else {
-                    console.log('[Lighthouse] Canonicalization results: none recorded');
-                }
-            }
-
-            if (options.preload !== false) {
-                const preloadDates = collectPreloadDatesFromPayload(payload, dateISO);
+            const preloadDates = collectPreloadDatesFromPayload(payload, dateISO);
                 const targets = Array.from(preloadDates).filter(iso => iso && iso !== dateISO && !lighthouseState.byDate.has(iso));
                 if (targets.length) {
                     targets.sort();
@@ -3395,19 +3120,17 @@
             const iso = toLocalISODate(dateObj);
             const summary = getLighthouseSummary(iso);
             if (!summary) return false;
-            const roomKey = canonicalizeRoomKey(baseRoom);
+            const roomKey = canonicalizeText(baseRoom);
             const companyKey = canonicalizeText(company);
-            if (roomKey && summary.byRoom.has(roomKey)) {
-                if (!companyKey) return summary.byRoom.get(roomKey).actions.length > 0;
-                const companyEntry = summary.byCompany.get(companyKey);
-                if (!companyEntry) return summary.byRoom.get(roomKey).actions.length > 0;
-                const companyRoom = companyEntry.rooms.get(roomKey);
-                return Boolean(companyRoom && companyRoom.actions.length);
+            if (roomKey && summary.rooms.has(roomKey)) {
+                const jobs = summary.rooms.get(roomKey).jobs || [];
+                if (!companyKey) return jobs.length > 0;
+                return jobs.some(job => canonicalizeText(job.clientName) === companyKey);
             }
-            if (companyKey && summary.byCompany.has(companyKey)) {
-                return summary.byCompany.get(companyKey).actions.length > 0;
+            if (companyKey) {
+                return summary.jobs.some(job => canonicalizeText(job.clientName) === companyKey);
             }
-            return summary.avActions.length > 0;
+            return summary.jobs.length > 0;
         }
 
         function shouldHighlightWeekly(company, dayIso) {
@@ -3415,10 +3138,10 @@
             const summary = getLighthouseSummary(dayIso);
             if (!summary) return false;
             const companyKey = canonicalizeText(company);
-            if (companyKey && summary.byCompany.has(companyKey)) {
-                return summary.byCompany.get(companyKey).actions.length > 0;
+            if (companyKey) {
+                return summary.jobs.some(job => canonicalizeText(job.clientName) === companyKey);
             }
-            return summary.avActions.length > 0;
+            return summary.jobs.length > 0;
         }
 
         function renderSimpleList(items, emptyText) {
@@ -3525,138 +3248,110 @@
         }
 
         function renderDailyPanel(panel, summary) {
-            if (!summary || !summary.avActions.length) {
-                panel.innerHTML = '<p class="av-empty">No Lighthouse AV data for this date.</p>';
+            if (!summary || !Array.isArray(summary.jobs) || !summary.jobs.length) {
+                panel.innerHTML = '<p class="av-empty">No jobs returned by Lighthouse for this date.</p>';
                 return;
             }
-            const selectedKey = lighthouseState.selectedRoom;
-            let rooms = [];
-            if (selectedKey && summary.byRoom.has(selectedKey)) {
-                rooms = [summary.byRoom.get(selectedKey)];
-            } else {
-                rooms = Array.from(summary.byRoom.values());
-            }
-            rooms.sort(compareRoomsForDisplay);
-            const detailHtml = rooms.length ? `<div class="av-room-grid">${rooms.map(renderRoomCard).join('')}</div>` : '<p class="av-empty">No Lighthouse AV data for this date.</p>';
-            const summaryHtml = buildDailySummary(summary);
-            panel.innerHTML = `${detailHtml}${summaryHtml}`;
+            const cards = summary.jobs.map(renderDailyJobCard).join('');
+            panel.innerHTML = `<div class="av-room-grid">${cards}</div>`;
         }
 
-        function accumulateWeeklyItem(categoryAggregate, item, dateISO) {
-            const displayName = item?.packageName || item?.displayName || item?.description || item?.rawDescription || 'Item';
-            const descKey = canonicalizeText(displayName);
-            const quantity = Number(item.quantity) || 0;
-            if (item.isPackageHeader) {
-                const pkgKey = `${descKey}|${quantity}`;
-                if (!categoryAggregate.packages.has(pkgKey)) {
-                    categoryAggregate.packages.set(pkgKey, { name: displayName, quantity, occurrences: new Set() });
-                }
-                categoryAggregate.packages.get(pkgKey).occurrences.add(dateISO);
-            } else {
-                if (!categoryAggregate.items.has(descKey)) {
-                    categoryAggregate.items.set(descKey, { name: displayName, quantity: 0 });
-                }
-                categoryAggregate.items.get(descKey).quantity += quantity;
+        function renderDailyJobCard(job) {
+            const headerParts = [];
+            if (job.orderName) {
+                headerParts.push(`<strong>${escapeHtml(job.orderName)}</strong>`);
             }
-            if (Array.isArray(item.children) && item.children.length) {
-                item.children.forEach(child => accumulateWeeklyItem(categoryAggregate, child, dateISO));
+            if (job.clientName) {
+                headerParts.push(`<span class="av-job-company">${escapeHtml(job.clientName)}</span>`);
             }
+            const header = headerParts.length ? `<div class="av-job-header">${headerParts.join(' ')}</div>` : '';
+            const roomLabel = `<div class="av-job-room">Room: ${escapeHtml(job.roomName || 'Unassigned')}</div>`;
+            const sections = job.equipmentSections && job.equipmentSections.length
+                ? job.equipmentSections.map(renderDailySection).join('')
+                : '<p class="av-empty">No equipment items listed.</p>';
+            return `<div class="av-room-card">${header}${roomLabel}${sections}</div>`;
         }
 
-        function renderWeeklyCategory(categoryAggregate) {
-            const packages = Array.from(categoryAggregate.packages.values()).sort((a, b) => a.name.localeCompare(b.name));
-            const items = Array.from(categoryAggregate.items.values()).sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
-            const lines = [];
-            packages.forEach(pkg => {
-                const qty = formatQuantityDisplay(pkg.quantity || 0);
-                const occurrenceLabel = pkg.occurrences.size > 1 ? `<span class="av-meta">${pkg.occurrences.size} days</span>` : '';
-                lines.push(`<li><strong>${escapeHtml(pkg.name)}</strong><span class="av-qty">×${qty}</span>${occurrenceLabel}</li>`);
+        function renderDailySection(section) {
+            const name = section?.name || 'Equipment';
+            const items = Array.isArray(section?.items) ? section.items : [];
+            const lines = items.map(item => {
+                const qty = formatQuantityDisplay(item.quantity ?? 0);
+                return `<li>${escapeHtml(qty)} x ${escapeHtml(item.description || '')}</li>`;
             });
-            items.forEach(item => {
-                const qty = formatQuantityDisplay(item.quantity || 0);
-                lines.push(`<li>${escapeHtml(item.name)}<span class="av-qty">×${qty}</span></li>`);
-            });
-            const content = lines.length ? `<ul class="av-equipment depth-0">${lines.join('')}</ul>` : '<p class="av-empty">No equipment totals.</p>';
-            return `<div class="av-category"><h5>${escapeHtml(categoryAggregate.name || 'Equipment')}</h5>${content}</div>`;
-        }
-
-        function buildWeeklySummary(aggregate) {
-            const jobs = Array.from(aggregate.jobs.values()).sort((a, b) => a.localeCompare(b));
-            const contacts = Array.from(aggregate.contacts.values()).map(entry => ({
-                name: entry.name,
-                jobs: Array.from(entry.jobs.values()).sort((a, b) => a.localeCompare(b)),
-            })).sort((a, b) => a.name.localeCompare(b.name));
-            const gear = Array.from(aggregate.gear.values()).map(entry => ({
-                name: entry.name,
-                quantity: entry.quantity || 0,
-                sources: Array.from(entry.sources.values()).sort((a, b) => a.localeCompare(b)),
-            })).filter(entry => !canonicalizeText(entry.name).includes('internet'))
-              .sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.name.localeCompare(b.name));
-            const jobSection = `<div class="av-section"><h4>Jobs</h4>${renderSimpleList(jobs, 'No AV jobs synced this week.')}</div>`;
-            const contactHtml = contacts.length ? `<ul class="av-list">${contacts.map(c => `<li><div><strong>${escapeHtml(c.name)}</strong></div>${c.jobs.length ? `<div>${c.jobs.map(escapeHtml).join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV contacts synced this week.</p>';
-            const contactSection = `<div class="av-section"><h4>Contacts</h4>${contactHtml}</div>`;
-            const gearHtml = gear.length ? `<ul class="av-list">${gear.map(item => `<li><div><strong>${escapeHtml(item.name)}</strong> · Qty ${formatQuantityDisplay(item.quantity)}</div>${item.sources.length ? `<div>${item.sources.map(escapeHtml).join(', ')}</div>` : ''}</li>`).join('')}</ul>` : '<p class="av-empty">No AV gear synced this week.</p>';
-            const gearSection = `<div class="av-section"><h4>Gear Totals</h4>${gearHtml}</div>`;
-            return `<div class="av-sections">${gearSection}${contactSection}${jobSection}</div>`;
+            const content = lines.length
+                ? `<ul class="av-equipment depth-0">${lines.join('')}</ul>`
+                : '<p class="av-empty">No equipment items listed.</p>';
+            return `<div class="av-category"><h5>${escapeHtml(name)}</h5>${content}</div>`;
         }
 
         function renderWeeklyPanel(panel, weekDates) {
-            const aggregate = {
-                categories: new Map(),
-                gear: new Map(),
-                contacts: new Map(),
-                jobs: new Set(),
-                missing: [],
-            };
+            const categoryTotals = new Map();
+            const missing = [];
+            let matchedDays = 0;
+
             weekDates.forEach(dateISO => {
                 const summary = getLighthouseSummary(dateISO);
                 if (!summary) {
-                    aggregate.missing.push(dateISO);
+                    missing.push(dateISO);
                     return;
                 }
-                summary.jobs.forEach(job => aggregate.jobs.add(job));
-                summary.contacts.forEach((value, key) => {
-                    if (!aggregate.contacts.has(key)) {
-                        aggregate.contacts.set(key, { name: value.name, jobs: new Set() });
-                    }
-                    value.jobs.forEach(jobName => aggregate.contacts.get(key).jobs.add(jobName));
-                });
-                summary.gearTotals.forEach((value, key) => {
-                    if (!aggregate.gear.has(key)) {
-                        aggregate.gear.set(key, { name: value.name, quantity: 0, sources: new Set() });
-                    }
-                    aggregate.gear.get(key).quantity += value.quantity || 0;
-                    value.sources.forEach(jobName => aggregate.gear.get(key).sources.add(jobName));
-                });
-                summary.byRoom.forEach(roomEntry => {
-                    roomEntry.jobs?.forEach(jobEntry => {
-                        jobEntry.categories?.forEach(categoryEntry => {
-                            const catKey = canonicalizeText(categoryEntry.name) || `category-${aggregate.categories.size}`;
-                            if (!aggregate.categories.has(catKey)) {
-                                aggregate.categories.set(catKey, { name: categoryEntry.name, packages: new Map(), items: new Map() });
+                if (!Array.isArray(summary.jobs) || !summary.jobs.length) {
+                    return;
+                }
+                matchedDays += 1;
+                summary.jobs.forEach(job => {
+                    (job.equipmentSections || []).forEach(section => {
+                        const sectionName = section?.name || 'Equipment';
+                        const sectionKey = canonicalizeText(sectionName) || sectionName;
+                        if (!categoryTotals.has(sectionKey)) {
+                            categoryTotals.set(sectionKey, {
+                                name: sectionName,
+                                items: new Map(),
+                            });
+                        }
+                        const categoryEntry = categoryTotals.get(sectionKey);
+                        (section?.items || []).forEach(item => {
+                            if (!item) return;
+                            const desc = (item.description || '').toString();
+                            if (!desc.trim()) return;
+                            const descKey = canonicalizeText(desc);
+                            if (!categoryEntry.items.has(descKey)) {
+                                categoryEntry.items.set(descKey, { description: desc, quantity: 0 });
                             }
-                            const catAggregate = aggregate.categories.get(catKey);
-                            (categoryEntry.items || []).forEach(item => accumulateWeeklyItem(catAggregate, item, dateISO));
+                            const numeric = Number(item.quantity);
+                            if (Number.isFinite(numeric)) {
+                                categoryEntry.items.get(descKey).quantity += numeric;
+                            }
                         });
                     });
                 });
             });
 
-            const categoryBlocks = Array.from(aggregate.categories.values())
-                .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-                .map(renderWeeklyCategory)
-                .join('');
-            const detailHtml = categoryBlocks ? `<div class="av-room-grid">${categoryBlocks}</div>` : '<p class="av-empty">No Lighthouse AV equipment totals for this week.</p>';
-            const summaryHtml = buildWeeklySummary(aggregate);
-            const missingNotice = aggregate.missing.length ? `<p class="av-empty">No Lighthouse data for: ${aggregate.missing.map(date => escapeHtml(formatLighthouseDateLabel(date))).join(', ')}</p>` : '';
-            panel.innerHTML = `${detailHtml}${summaryHtml}${missingNotice}`;
-            const syncedCount = weekDates.length - aggregate.missing.length;
-            if (syncedCount === weekDates.length) {
-                setLighthousePanelStatus('Synced for all 7 days', 'success');
-            } else if (syncedCount === 0) {
+            if (!categoryTotals.size) {
+                panel.innerHTML = '<p class="av-empty">No Lighthouse AV equipment totals for this week.</p>';
+            } else {
+                const blocks = Array.from(categoryTotals.values())
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                    .map(category => {
+                        const items = Array.from(category.items.values())
+                            .sort((a, b) => (b.quantity || 0) - (a.quantity || 0) || a.description.localeCompare(b.description))
+                            .map(item => `<li>${escapeHtml(formatQuantityDisplay(item.quantity))} x ${escapeHtml(item.description)}</li>`);
+                        const content = items.length
+                            ? `<ul class="av-equipment depth-0">${items.join('')}</ul>`
+                            : '<p class="av-empty">No equipment items listed.</p>';
+                        return `<div class="av-category"><h5>${escapeHtml(category.name || 'Equipment')}</h5>${content}</div>`;
+                    })
+                    .join('');
+                panel.innerHTML = `<div class="av-room-grid">${blocks}</div>`;
+            }
+
+            if (matchedDays > 0) {
+                setLighthousePanelStatus(`Synced for ${matchedDays} day${matchedDays === 1 ? '' : 's'}`, 'success');
+            } else if (missing.length === weekDates.length) {
                 setLighthousePanelStatus('No Lighthouse data for this week', null);
             } else {
-                setLighthousePanelStatus(`Synced for ${syncedCount} of 7 days`, 'syncing');
+                setLighthousePanelStatus('No Lighthouse AV data for this week', null);
             }
         }
 
@@ -3670,43 +3365,27 @@
         function describeLighthouseEmptyState(summary, dateISO) {
             if (!summary) return null;
             const diag = summary.diagnostics || {};
-            const matchedRoomCount = summary.byRoom instanceof Map ? summary.byRoom.size : 0;
-            const canonicalMatches = diag.matchedRoomKeys instanceof Set ? diag.matchedRoomKeys.size : Array.isArray(diag.matchedRoomKeys) ? diag.matchedRoomKeys.length : 0;
-            const hasMatches = matchedRoomCount > 0 || canonicalMatches > 0;
-            const jobsConsidered = diag.jobsConsidered || 0;
-            const matchedJobs = diag.jobCount || 0;
-            if (diag.usedStructuredRoomActions) {
-                if (jobsConsidered === 0 && matchedJobs === 0) {
-                    const message = 'No jobs returned by Lighthouse for this date.';
-                    return {
-                        reason: 'no-jobs',
-                        panelMessage: message,
-                        panelStatus: message,
-                        panelType: 'syncing',
-                        statusText: 'Synced (no jobs)',
-                        statusType: 'syncing',
-                    };
-                }
-                if (jobsConsidered > 0 && matchedJobs === 0) {
-                    const message = 'Jobs found in Lighthouse, but none scheduled for this day.';
-                    return {
-                        reason: 'no-date-match',
-                        panelMessage: message,
-                        panelStatus: message,
-                        panelType: 'syncing',
-                        statusText: 'Jobs found but none scheduled today',
-                        statusType: 'syncing',
-                    };
-                }
-            }
-            if (matchedJobs > 0 && !hasMatches) {
-                const message = 'Jobs found, but room assignments could not be mapped.';
+            const considered = diag.roomActionsConsidered || 0;
+            const matched = Array.isArray(summary.jobs) ? summary.jobs.length : 0;
+            if (considered === 0 && matched === 0) {
+                const message = 'No jobs returned by Lighthouse for this date.';
                 return {
-                    reason: 'no-room-match',
+                    reason: 'no-jobs',
                     panelMessage: message,
                     panelStatus: message,
                     panelType: 'syncing',
-                    statusText: 'Jobs found but rooms unmatched',
+                    statusText: 'Synced (no jobs)',
+                    statusType: 'syncing',
+                };
+            }
+            if (considered > 0 && matched === 0) {
+                const message = 'Jobs found in Lighthouse, but none scheduled for this day.';
+                return {
+                    reason: 'no-date-match',
+                    panelMessage: message,
+                    panelStatus: message,
+                    panelType: 'syncing',
+                    statusText: 'Jobs found but none scheduled today',
                     statusType: 'syncing',
                 };
             }
@@ -3747,7 +3426,7 @@
                 setLighthousePanelStatus(statusText, null);
                 return;
             }
-            if (!summary.avActions.length) {
+            if (!Array.isArray(summary.jobs) || !summary.jobs.length) {
                 const emptyState = describeLighthouseEmptyState(summary, dateISO);
                 if (emptyState) {
                     panel.innerHTML = `<p class="av-empty">${escapeHtml(emptyState.panelMessage)}</p>`;
@@ -3776,7 +3455,7 @@
                 const summary = result?.summary || getLighthouseSummary(dateISO) || null;
                 const dateLabel = formatLighthouseDateLabel(dateISO);
 
-                if (summary && Array.isArray(summary.avActions) && summary.avActions.length) {
+                if (summary && Array.isArray(summary.jobs) && summary.jobs.length) {
                     setLighthouseStatus('Synced', 'success');
                     const successText = dateLabel ? `Synced for ${dateLabel}` : 'Synced';
                     setLighthousePanelStatus(successText, 'success');

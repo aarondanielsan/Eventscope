@@ -509,7 +509,7 @@
             font-size: 0.75rem;
             font-weight: 600;
             border-radius: 9999px;
-            margin-left: 6px;
+            margin-right: 6px;
             color: #fff;
         }
 
@@ -2427,13 +2427,14 @@
 
                     const card = document.createElement("div");
                     card.className = "change-card";
-                    const badgeHtml = change.badge ? ` <span class="badge ${change.badge.className}">${change.badge.label}</span>` : "";
-                    const hasHeaderText = !!(change.header && change.header.trim());
-                    const spacing = change.pas ? ((hasHeaderText || change.badge) ? " " : "") : "";
-                    const prefix = change.pas ? (hasHeaderText ? "· " : "") : "";
-                    const postHtml = change.pas ? `${spacing}<span class="post-label">${prefix}${change.pas}</span>` : "";
+                    const badgeHtml = change.badge ? `<span class="badge ${change.badge.className}">${change.badge.label}</span>` : "";
+                    const headerText = (change.header || "").trim();
+                    const hasHeaderText = headerText.length > 0;
+                    const postSpacing = change.pas ? (hasHeaderText ? " " : (badgeHtml ? " " : "")) : "";
+                    const postPrefix = change.pas ? (hasHeaderText ? "· " : "") : "";
+                    const postHtml = change.pas ? `${postSpacing}<span class="post-label">${postPrefix}${change.pas}</span>` : "";
                     card.innerHTML = `
-            <h4>${change.header || ""}${badgeHtml}${postHtml}</h4>
+            <h4>${badgeHtml}${headerText}${postHtml}</h4>
             <div style="font-size:.8rem;color:#555;margin-bottom:4px;">${change.date}</div>
             <ul>
               ${change.diffs.map(d => {
@@ -2786,34 +2787,39 @@
                 inEventHeader = false;
                 inEventBody = true;
 
-                const usedColumns = new Set();
-                if (startIndex !== null) usedColumns.add(startIndex);
-                if (endIndex !== null) usedColumns.add(endIndex);
+                const valueColumns = columnMeta
+                    .filter(meta => !meta.isEmpty && !meta.isTime && !meta.isCount)
+                    .sort((a, b) => a.idx - b.idx);
 
-                const availableMetas = columnMeta.filter(meta => !meta.isEmpty && !meta.isTime && !meta.isCount);
-                const takeMeta = predicate => {
-                    for (const meta of availableMetas) {
-                        if (usedColumns.has(meta.idx)) {
-                            continue;
-                        }
-                        if (predicate(meta)) {
-                            usedColumns.add(meta.idx);
-                            return meta;
-                        }
-                    }
-                    return null;
+                const remainingMetas = [...valueColumns];
+                const pullMeta = predicate => {
+                    const index = remainingMetas.findIndex(predicate);
+                    if (index === -1) return null;
+                    return remainingMetas.splice(index, 1)[0];
                 };
 
-                const spaceMeta = takeMeta(meta => meta.spaceKnown || meta.looksLikeSpace) || takeMeta(() => true);
-                const typeMeta = takeMeta(meta => meta.typeKnown) || takeMeta(meta => !meta.looksLikeSpace);
-                const setupMeta = takeMeta(meta => meta.setupKnown || meta.looksLikeSetup);
+                let spaceMeta = pullMeta(meta => meta.spaceKnown);
+                if (!spaceMeta) spaceMeta = pullMeta(meta => meta.looksLikeSpace);
+
+                let typeMeta = pullMeta(meta => meta.typeKnown);
+                if (!typeMeta) typeMeta = pullMeta(meta => !meta.looksLikeSpace && !meta.looksLikeSetup);
+
+                let setupMeta = pullMeta(meta => meta.setupKnown);
+                if (!setupMeta) setupMeta = pullMeta(meta => meta.looksLikeSetup);
+
+                if (!spaceMeta && remainingMetas.length) spaceMeta = remainingMetas.shift();
+                if (!typeMeta && remainingMetas.length) typeMeta = remainingMetas.shift();
+                if (!setupMeta && remainingMetas.length) setupMeta = remainingMetas.shift();
 
                 const columnTypeText = typeMeta ? typeMeta.text : "";
+                const columnSpaceText = spaceMeta ? spaceMeta.text : "";
+                const columnSetupText = setupMeta ? setupMeta.text : "";
+
                 const detectedType = detectFunctionType(lineText);
                 let functionType = "";
                 if (columnTypeText) {
                     const normalizedType = normalizeForMatch(columnTypeText);
-                    if (KNOWN_TYPE_LOOKUP.has(normalizedType)) {
+                    if (normalizedType && KNOWN_TYPE_LOOKUP.has(normalizedType)) {
                         functionType = KNOWN_TYPE_LOOKUP.get(normalizedType);
                     } else {
                         functionType = columnTypeText;
@@ -2822,12 +2828,11 @@
                     functionType = detectedType;
                 }
 
-                const columnSetupText = setupMeta ? setupMeta.text : "";
                 const detectedSetup = detectSetupStyle(lineText);
                 let setupStyle = "";
                 if (columnSetupText) {
                     const normalizedSetup = normalizeForMatch(columnSetupText);
-                    if (KNOWN_SETUP_LOOKUP.has(normalizedSetup)) {
+                    if (normalizedSetup && KNOWN_SETUP_LOOKUP.has(normalizedSetup)) {
                         setupStyle = KNOWN_SETUP_LOOKUP.get(normalizedSetup);
                     } else {
                         setupStyle = columnSetupText;
@@ -2836,19 +2841,45 @@
                     setupStyle = detectedSetup;
                 }
 
-                const detectedSpace = detectSpace(lineText);
+                let functionSpace = "";
                 let spaceSourceKnown = false;
-                if (detectedSpace) {
-                    spaceSourceKnown = true;
+                if (columnSpaceText) {
+                    if (spaceMeta?.spaceKnown) {
+                        spaceSourceKnown = true;
+                    }
+                    const normalizedSpaceColumn = normalizeForMatch(columnSpaceText);
+                    if (normalizedSpaceColumn && KNOWN_SPACE_LOOKUP.has(normalizedSpaceColumn)) {
+                        functionSpace = KNOWN_SPACE_LOOKUP.get(normalizedSpaceColumn);
+                        spaceSourceKnown = true;
+                    } else {
+                        functionSpace = columnSpaceText;
+                    }
+                } else {
+                    const detectedSpace = detectSpace(lineText);
+                    if (detectedSpace) {
+                        const expanded = expandGroupedSpace(lineText, detectedSpace) || detectedSpace;
+                        functionSpace = expanded;
+                        spaceSourceKnown = true;
+                    }
                 }
-                let functionSpace = detectedSpace ? expandGroupedSpace(lineText, detectedSpace) : null;
-                if (!functionSpace && detectedSpace) {
-                    functionSpace = detectedSpace;
+
+                if (functionSpace && !spaceSourceKnown) {
+                    const normalizedSpace = normalizeForMatch(functionSpace);
+                    if (normalizedSpace && KNOWN_SPACE_LOOKUP.has(normalizedSpace)) {
+                        functionSpace = KNOWN_SPACE_LOOKUP.get(normalizedSpace);
+                        spaceSourceKnown = true;
+                    } else if (functionSpace.includes("(") && !spaceSourceKnown) {
+                        const base = functionSpace.split("(")[0].trim();
+                        const baseNorm = normalizeForMatch(base);
+                        if (baseNorm && KNOWN_SPACE_LOOKUP.has(baseNorm)) {
+                            spaceSourceKnown = true;
+                        }
+                    }
                 }
-                if (!functionSpace && spaceMeta) {
-                    functionSpace = spaceMeta.text;
-                    spaceSourceKnown = spaceMeta.spaceKnown;
-                }
+
+                functionType = functionType ? functionType.trim() : "";
+                setupStyle = setupStyle ? setupStyle.trim() : "";
+                functionSpace = functionSpace ? functionSpace.trim() : "";
 
                 if (functionSpace && COUNTS_RE.test(functionSpace.replace(/\s+/g, ''))) {
                     functionSpace = null;

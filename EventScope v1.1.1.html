@@ -1950,18 +1950,31 @@
                 const postAsDisplay = cleanValue(ev["Post As"]);
                 const statusDisplay = cleanValue(ev["Event Status"]);
 
+                const normalizedCompany = normalizeText(ev["Company Name"]);
+                const normalizedSpace = normalizeText(ev["Function Space"]);
+                const normalizedType = normalizeText(ev["Function Type"]);
+                const normalizedSetup = normalizeText(ev["Setup Style"]);
+                const normalizedPostAs = normalizeText(ev["Post As"]);
+
                 const identityKey = [
+                    normalizedCompany,
                     dateInfo.key,
                     startInfo.key,
                     endInfo.key,
-                    normalizeText(ev["Function Space"]),
-                    normalizeText(ev["Function Type"]),
-                    normalizeText(ev["Setup Style"])
+                    normalizedSpace,
+                    normalizedType,
+                    normalizedSetup,
+                    normalizedPostAs
                 ].join("||");
 
                 const nameKey = [
-                    normalizeText(ev["Company Name"]),
+                    normalizedCompany,
                     normalizeText(ev["Event Name"]),
+                    dateInfo.key
+                ].join("||");
+
+                const companyDateKey = [
+                    normalizedCompany,
                     dateInfo.key
                 ].join("||");
 
@@ -1975,12 +1988,12 @@
                         end: endInfo.key,
                         startMinutes: startInfo.minutes,
                         endMinutes: endInfo.minutes,
-                        company: normalizeText(ev["Company Name"]),
+                        company: normalizedCompany,
                         event: normalizeText(ev["Event Name"]),
-                        space: normalizeText(ev["Function Space"]),
-                        type: normalizeText(ev["Function Type"]),
-                        setup: normalizeText(ev["Setup Style"]),
-                        postAs: normalizeText(ev["Post As"]),
+                        space: normalizedSpace,
+                        type: normalizedType,
+                        setup: normalizedSetup,
+                        postAs: normalizedPostAs,
                         status: normalizeText(ev["Event Status"])
                     },
                     display: {
@@ -1999,6 +2012,7 @@
                     startSortValue: startInfo.minutes != null ? startInfo.minutes : Infinity,
                     identityKey,
                     nameKey,
+                    companyDateKey,
                     matched: false
                 };
             };
@@ -2095,12 +2109,15 @@
 
             const byIdentity = new Map();
             const byName = new Map();
+            const byCompanyDate = new Map();
 
             const register = ev => {
                 if (!byIdentity.has(ev.identityKey)) byIdentity.set(ev.identityKey, []);
                 byIdentity.get(ev.identityKey).push(ev);
                 if (!byName.has(ev.nameKey)) byName.set(ev.nameKey, []);
                 byName.get(ev.nameKey).push(ev);
+                if (!byCompanyDate.has(ev.companyDateKey)) byCompanyDate.set(ev.companyDateKey, []);
+                byCompanyDate.get(ev.companyDateKey).push(ev);
             };
 
             previousEvents.forEach(register);
@@ -2118,13 +2135,20 @@
                     if (idx >= 0) listB.splice(idx, 1);
                     if (!listB.length) byName.delete(ev.nameKey);
                 }
+                const listC = byCompanyDate.get(ev.companyDateKey);
+                if (listC) {
+                    const idx = listC.indexOf(ev);
+                    if (idx >= 0) listC.splice(idx, 1);
+                    if (!listC.length) byCompanyDate.delete(ev.companyDateKey);
+                }
             };
 
             const scoreDifference = (a, b) => {
                 let score = 0;
-                ["start", "end", "space", "type", "setup"].forEach(field => {
+                ["start", "end", "space", "type", "setup", "postAs"].forEach(field => {
                     if (a.normalized[field] !== b.normalized[field]) score += 1;
                 });
+                if (a.normalized.event !== b.normalized.event) score += 0.5;
                 const startDiff = a.normalized.startMinutes != null && b.normalized.startMinutes != null
                     ? Math.abs(a.normalized.startMinutes - b.normalized.startMinutes)
                     : 0;
@@ -2143,14 +2167,32 @@
                     return match;
                 }
 
-                const candidates = byName.get(ev.nameKey);
-                if (!candidates || !candidates.length) return null;
+                const pool = [];
+                const seen = new Set();
+
+                const pushPool = list => {
+                    if (!list) return;
+                    list.forEach(candidate => {
+                        if (candidate.matched) return;
+                        if (candidate.normalized.company !== ev.normalized.company) return;
+                        if (candidate.normalized.dateKey !== ev.normalized.dateKey) return;
+                        const key = candidate.index;
+                        if (seen.has(key)) return;
+                        seen.add(key);
+                        pool.push(candidate);
+                    });
+                };
+
+                pushPool(byName.get(ev.nameKey));
+                if (!pool.length) {
+                    pushPool(byCompanyDate.get(ev.companyDateKey));
+                }
+
+                if (!pool.length) return null;
 
                 let best = null;
                 let bestScore = Infinity;
-                candidates.forEach(candidate => {
-                    if (candidate.matched) return;
-                    if (candidate.normalized.dateKey !== ev.normalized.dateKey) return;
+                pool.forEach(candidate => {
                     const score = scoreDifference(ev, candidate);
                     if (score < bestScore) {
                         bestScore = score;
@@ -2171,6 +2213,24 @@
                 prev: prevValue || "—",
                 newest: newValue || "—"
             });
+
+            const describeEventSnapshot = snapshot => {
+                if (!snapshot) return "—";
+                const pieces = [];
+                const startLabel = snapshot.display?.start;
+                const endLabel = snapshot.display?.end;
+                if (startLabel || endLabel) {
+                    if (startLabel && endLabel) {
+                        pieces.push(`${startLabel} – ${endLabel}`);
+                    } else {
+                        pieces.push(startLabel || endLabel);
+                    }
+                }
+                if (snapshot.display?.space) pieces.push(snapshot.display.space);
+                if (snapshot.display?.setup) pieces.push(snapshot.display.setup);
+                const detail = pieces.filter(Boolean).join(" · ");
+                return detail || snapshot.display?.date || "—";
+            };
 
             const computeDiffs = (latest, previous) => {
                 const diffs = [];
@@ -2264,13 +2324,15 @@
                     }
                     ev.matched = true;
                 } else {
-                    changes.push(buildChange("added", ev, null, [{ type: "note", message: "New event added." }]));
+                    const detail = describeEventSnapshot(ev);
+                    changes.push(buildChange("added", ev, null, [{ type: "note", message: `New event added: ${detail}` }]));
                 }
             });
 
             previousEvents.forEach(ev => {
                 if (!ev.matched) {
-                    changes.push(buildChange("removed", null, ev, [{ type: "note", message: "Event removed." }]));
+                    const detail = describeEventSnapshot(ev);
+                    changes.push(buildChange("removed", null, ev, [{ type: "note", message: `Event removed: ${detail}` }]));
                 }
             });
 

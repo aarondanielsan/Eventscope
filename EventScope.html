@@ -1152,6 +1152,7 @@
             selectedRoom: null,
             selectedCompany: null,
             highlightActive: false,
+            pendingFetches: new Map(),
         };
 
         /* ========= REPORT HISTORY (IndexedDB) ========= */
@@ -1899,6 +1900,8 @@
                     jobDateMatches: [],
                     jobDateDiscarded: [],
                     jobLogs: [],
+                    matchedRoomActionDates: new Set(),
+                    matchedEventDates: new Set(),
                 },
             };
         }
@@ -2667,7 +2670,6 @@
             let rangeMatch = false;
             let flowsheetMatch = false;
             let usedFallback = false;
-            const fallbackAllowed = !flowsheetDate;
             const matchedDates = new Set();
             if (flowsheetDate) {
                 flowsheetMatch = flowsheetDate === normalizedTarget;
@@ -2676,32 +2678,30 @@
                     matchedDates.add(flowsheetDate);
                 }
             }
-            if (fallbackAllowed) {
-                singleDates.forEach(date => {
-                    if (date === normalizedTarget) {
-                        baseMatch = true;
-                        usedFallback = true;
-                        matchedDates.add(date);
-                    }
-                });
-                if (orderSpan.start || orderSpan.end) {
-                    if (isTargetWithinRange(normalizedTarget, orderSpan)) {
-                        baseMatch = true;
-                        usedFallback = true;
-                        rangeMatch = true;
-                        matchedDates.add(orderSpan.start || orderSpan.end || normalizedTarget);
-                    }
+            singleDates.forEach(date => {
+                if (date === normalizedTarget) {
+                    if (!flowsheetMatch) usedFallback = true;
+                    baseMatch = true;
+                    matchedDates.add(date);
                 }
-                ranges.forEach(range => {
-                    if (!range) return;
-                    if (isTargetWithinRange(normalizedTarget, range)) {
-                        baseMatch = true;
-                        usedFallback = true;
-                        if (range.source === 'order') rangeMatch = true;
-                        matchedDates.add(range.start || range.end || normalizedTarget);
-                    }
-                });
+            });
+            if (orderSpan.start || orderSpan.end) {
+                if (isTargetWithinRange(normalizedTarget, orderSpan)) {
+                    if (!flowsheetMatch) usedFallback = true;
+                    baseMatch = true;
+                    rangeMatch = true;
+                    matchedDates.add(orderSpan.start || orderSpan.end || normalizedTarget);
+                }
             }
+            ranges.forEach(range => {
+                if (!range) return;
+                if (isTargetWithinRange(normalizedTarget, range)) {
+                    if (!flowsheetMatch) usedFallback = true;
+                    baseMatch = true;
+                    if (range.source === 'order') rangeMatch = true;
+                    matchedDates.add(range.start || range.end || normalizedTarget);
+                }
+            });
             const matchedEvents = eventDates.filter(date => date === normalizedTarget);
             const hasEventDates = eventDates.length > 0;
             const eventMatch = matchedEvents.length > 0;
@@ -2737,10 +2737,18 @@
             const diagnostics = summary?.diagnostics;
             const loggingEnabled = !options?.suppressLogs;
             const logTotals = loggingEnabled ? { total: 0, matched: 0, unmatched: [] } : null;
+            const diagRoomDateSet = diagnostics?.matchedRoomActionDates instanceof Set ? diagnostics.matchedRoomActionDates : null;
+            const diagEventDateSet = diagnostics?.matchedEventDates instanceof Set ? diagnostics.matchedEventDates : null;
             roomActions.forEach(roomAction => {
                 if (diagnostics) {
                     diagnostics.roomActionsConsidered += 1;
                 }
+                const roomActionDate = firstISODateFromCandidates([
+                    roomAction?.flowsheetDate,
+                    roomAction?.flowDate,
+                    roomAction?.date,
+                    roomAction?.Day,
+                ]);
                 const roomGuid = roomAction?.roomGuid || roomAction?.roomId || roomAction?.room?.roomGuid;
                 const rawRoomName = roomAction?.roomName || roomAction?.room?.name || roomAction?.spaceName || roomAction?.name || '';
                 const canonical = canonicalizeRoomFromGuide(roomGuid, rawRoomName);
@@ -2840,6 +2848,14 @@
                         if (matchInfo.rangeMatch) diagnostics.jobsMatchedRange += 1;
                         if (matchInfo.eventMatch) diagnostics.jobsMatchedEvents += 1;
                         else if (matchInfo.eventDates && matchInfo.eventDates.length) diagnostics.jobsWithoutEventForDate += 1;
+                        if (matchInfo.flowsheetMatch && roomActionDate && diagRoomDateSet) {
+                            diagRoomDateSet.add(roomActionDate);
+                        }
+                        if (diagEventDateSet && Array.isArray(matchInfo.matchedEvents)) {
+                            matchInfo.matchedEvents.forEach(eventDate => {
+                                if (eventDate) diagEventDateSet.add(eventDate);
+                            });
+                        }
                         if (Array.isArray(matchInfo.matchedDates) && matchInfo.matchedDates.length) {
                             if (diagnostics.jobDateMatches.length < 200) {
                                 diagnostics.jobDateMatches.push({
@@ -2897,7 +2913,14 @@
             });
             if (loggingEnabled && logTotals && logTotals.total) {
                 const unmatchedCount = logTotals.total - logTotals.matched;
-                console.log(`[Lighthouse] Requested ${dateISO}: ${logTotals.matched} matched of ${logTotals.total} jobs (${unmatchedCount} unmatched).`);
+                const matchedRoomDates = diagRoomDateSet ? Array.from(diagRoomDateSet.values()) : [];
+                const matchedEventDates = diagEventDateSet ? Array.from(diagEventDateSet.values()) : [];
+                const roomDatesDisplay = matchedRoomDates.length ? matchedRoomDates.join(', ') : 'none';
+                const eventDatesDisplay = matchedEventDates.length ? matchedEventDates.join(', ') : 'none';
+                console.log(
+                    `[Lighthouse] Requested ${dateISO}: roomAction matches [${roomDatesDisplay}], event matches [${eventDatesDisplay}], ` +
+                    `jobs included ${logTotals.matched}, dropped ${unmatchedCount}.`
+                );
                 if (unmatchedCount) {
                     logTotals.unmatched.slice(0, 20).forEach(entry => {
                         const spanLabel = `${entry.spanStart || 'unknown'} → ${entry.spanEnd || 'unknown'}`;
@@ -3049,11 +3072,12 @@
             }
         }
 
-        async function saveLighthousePayload(dateISO, payload) {
+        async function saveLighthousePayload(dateISO, payload, options = {}) {
             const storeKey = resolveLighthouseDateKey(payload, dateISO);
             const requestedSummary = computeLighthouseSummaryForDate(dateISO, payload, {
                 requestedDate: dateISO,
                 payloadDate: storeKey,
+                suppressLogs: options?.suppressLogs,
             });
             if (requestedSummary.diagnostics) {
                 requestedSummary.diagnostics.storeKey = storeKey;
@@ -3069,8 +3093,6 @@
                     payloadSummary.diagnostics.storeKey = storeKey;
                 }
                 lighthouseState.byDate.set(storeKey, payloadSummary);
-            } else {
-                lighthouseState.byDate.set(storeKey, requestedSummary);
             }
             if (lighthouseDB) {
                 const savedAt = new Date().toISOString();
@@ -3083,16 +3105,284 @@
                     console.error("Unable to persist Lighthouse payload", err);
                 }
             }
-            const diag = requestedSummary.diagnostics || {};
-            const totalJobs = diag.jobsConsidered || 0;
-            const matchedJobs = diag.jobCount || 0;
-            const unmatchedJobs = Math.max(0, totalJobs - matchedJobs);
-            const droppedByEvents = diag.jobsDroppedByEvents || 0;
-            console.log(
-                `[Lighthouse] Requested ${dateISO}, payload ${storeKey || 'unknown'}: ${totalJobs} jobs considered, ${matchedJobs} matched, ${unmatchedJobs} unmatched` +
-                (droppedByEvents ? ` (${droppedByEvents} dropped for missing events)` : '')
-            );
             return requestedSummary;
+        }
+
+        function enumerateInclusiveDateRange(startIso, endIso) {
+            const results = [];
+            if (!startIso && !endIso) return results;
+            const start = startIso ? new Date(`${startIso}T00:00:00`) : (endIso ? new Date(`${endIso}T00:00:00`) : null);
+            const end = endIso ? new Date(`${endIso}T00:00:00`) : start;
+            if (!start || Number.isNaN(start.getTime()) || !end || Number.isNaN(end.getTime())) return results;
+            const direction = start.getTime() <= end.getTime() ? 1 : -1;
+            const current = new Date(start);
+            while ((direction > 0 && current <= end) || (direction < 0 && current >= end)) {
+                results.push(toLocalISODate(current));
+                current.setDate(current.getDate() + direction);
+            }
+            return results;
+        }
+
+        function collectPreloadDatesFromPayload(payload, requestedISO) {
+            const results = new Set();
+            const structuredActions = extractStructuredRoomActions(payload);
+            structuredActions.forEach(roomAction => {
+                const jobs = extractRoomJobs(roomAction);
+                jobs.forEach(job => {
+                    const span = extractOrderSpanISO(job, roomAction);
+                    const spanDates = enumerateInclusiveDateRange(span.start, span.end);
+                    spanDates.forEach(iso => {
+                        if (iso && iso !== requestedISO) results.add(iso);
+                    });
+                    const eventDates = collectFlowsheetEventDates(job, roomAction);
+                    eventDates.forEach(eventIso => {
+                        if (eventIso && eventIso !== requestedISO) results.add(eventIso);
+                    });
+                    const flowsheetIso = firstISODateFromCandidates([
+                        roomAction?.flowsheetDate,
+                        roomAction?.flowDate,
+                        roomAction?.date,
+                        roomAction?.Day,
+                        job?.flowsheetDate,
+                        job?.flowDate,
+                        job?.date,
+                        job?.Day,
+                    ]);
+                    if (flowsheetIso && flowsheetIso !== requestedISO) {
+                        results.add(flowsheetIso);
+                    }
+                });
+            });
+            return results;
+        }
+
+        async function performLighthouseFetch(dateISO, options = {}) {
+            if (!dateISO) {
+                throw new Error('A date string is required for Lighthouse sync.');
+            }
+            if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) {
+                throw new Error('Lighthouse bridge is not available in this environment.');
+            }
+            const shouldLogDetails = options.log === true;
+            const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
+            if (shouldLogDetails) {
+                console.log('[Lighthouse] Raw payload snapshot:', payload);
+            }
+            const summary = await saveLighthousePayload(dateISO, payload, { suppressLogs: !shouldLogDetails });
+            const diagnostics = summary.diagnostics || {};
+
+            if (shouldLogDetails) {
+                const payloadKeys = diagnostics.topLevelKeys || (payload && typeof payload === 'object' ? Object.keys(payload) : []);
+                console.log('[Lighthouse] Payload top-level keys:', payloadKeys);
+                console.log('[Lighthouse] Structured roomActions count:', diagnostics.roomActionCount || 0);
+                const totalJobsSeen = typeof diagnostics.jobsConsidered === 'number' ? diagnostics.jobsConsidered : diagnostics.jobCount || 0;
+                console.log('[Lighthouse] Jobs detected in payload:', totalJobsSeen);
+                if (!diagnostics.usedStructuredRoomActions && diagnostics.fallbackListLength) {
+                    console.log('[Lighthouse] Fallback action list length:', diagnostics.fallbackListLength);
+                }
+            }
+
+            const matchedRoomDates = diagnostics.matchedRoomActionDates instanceof Set
+                ? Array.from(diagnostics.matchedRoomActionDates.values())
+                : (Array.isArray(diagnostics.matchedRoomActionDates) ? diagnostics.matchedRoomActionDates : []);
+            const matchedEventDates = diagnostics.matchedEventDates instanceof Set
+                ? Array.from(diagnostics.matchedEventDates.values())
+                : (Array.isArray(diagnostics.matchedEventDates) ? diagnostics.matchedEventDates : []);
+            const totalJobsSeen = typeof diagnostics.jobsConsidered === 'number'
+                ? diagnostics.jobsConsidered
+                : diagnostics.jobCount || 0;
+            const includedJobs = diagnostics.jobCount || 0;
+            const droppedJobs = Math.max(0, totalJobsSeen - includedJobs);
+            const roomDisplay = matchedRoomDates.length ? matchedRoomDates.join(', ') : 'none';
+            const eventDisplay = matchedEventDates.length ? matchedEventDates.join(', ') : 'none';
+            console.log(`[Lighthouse] Requested ${dateISO}: roomAction matches [${roomDisplay}], event matches [${eventDisplay}], jobs included ${includedJobs}, dropped ${droppedJobs}.`);
+
+            if (shouldLogDetails) {
+                const payloadDateForLog = diagnostics.payloadDate || diagnostics.storeKey || resolveLighthouseDateKey(payload, dateISO);
+                const jobsMatchedForDate = diagnostics.jobsMatchedDate || diagnostics.jobCount || 0;
+                const jobsDroppedByEvents = diagnostics.jobsDroppedByEvents || 0;
+                const inferredDropByDate = Math.max(0, totalJobsSeen - jobsMatchedForDate - jobsDroppedByEvents);
+                const jobsDroppedByDate = diagnostics.jobsDroppedByDate || inferredDropByDate;
+                console.log(
+                    `[Lighthouse] Requested ${dateISO}, payload ${payloadDateForLog || 'unknown'}, ${totalJobsSeen} jobs found, ${jobsMatchedForDate} matched for requested date` +
+                    (jobsDroppedByDate ? `, ${jobsDroppedByDate} filtered by date` : '') +
+                    (jobsDroppedByEvents ? `; ${jobsDroppedByEvents} filtered by events` : '') +
+                    '.'
+                );
+                if (diagnostics.jobsWithoutDateInfo) {
+                    console.log('[Lighthouse] Jobs without explicit date info treated as matches:', diagnostics.jobsWithoutDateInfo);
+                }
+                if (Array.isArray(diagnostics.jobDateDiscarded) && diagnostics.jobDateDiscarded.length) {
+                    const discardedSample = diagnostics.jobDateDiscarded.slice(0, 5);
+                    console.log('[Lighthouse] Jobs discarded due to date mismatch:', {
+                        count: diagnostics.jobDateDiscarded.length,
+                        sample: discardedSample,
+                    });
+                }
+                if (Array.isArray(diagnostics.jobDateMatches) && diagnostics.jobDateMatches.length) {
+                    const matchSample = diagnostics.jobDateMatches.slice(0, 5);
+                    console.log('[Lighthouse] Jobs matched by date sample:', {
+                        count: diagnostics.jobDateMatches.length,
+                        sample: matchSample,
+                    });
+                }
+                const matchedRooms = diagnostics.matchedRoomKeys instanceof Set ? Array.from(diagnostics.matchedRoomKeys.values()) : (Array.isArray(diagnostics.matchedRoomKeys) ? diagnostics.matchedRoomKeys : []);
+                const unmatchedRooms = Array.isArray(diagnostics.unmatchedRooms) ? diagnostics.unmatchedRooms : [];
+                console.log('[Lighthouse] Summary diagnostics:', {
+                    requestedDate: diagnostics.requestedDate || dateISO,
+                    storeKey: diagnostics.storeKey || diagnostics.payloadDate || null,
+                    roomActionsConsidered: diagnostics.roomActionsConsidered || 0,
+                    roomActionCount: diagnostics.roomActionCount || 0,
+                    jobCount: diagnostics.jobCount || 0,
+                    jobsConsidered: diagnostics.jobsConsidered || 0,
+                    jobsMatchedDate: diagnostics.jobsMatchedDate || diagnostics.jobCount || 0,
+                    jobsDroppedByDate: diagnostics.jobsDroppedByDate || 0,
+                    jobsDroppedByEvents: diagnostics.jobsDroppedByEvents || 0,
+                    jobsWithoutDateInfo: diagnostics.jobsWithoutDateInfo || 0,
+                    jobsWithEquipment: diagnostics.jobsWithEquipment || 0,
+                    jobsWithoutEquipment: diagnostics.jobsWithoutEquipment || 0,
+                    matchedRoomKeys: matchedRooms,
+                    unmatchedRooms,
+                });
+                if (Array.isArray(diagnostics.canonicalization) && diagnostics.canonicalization.length) {
+                    if (typeof console.table === 'function') {
+                        console.table(diagnostics.canonicalization.map(entry => ({
+                            roomGuid: entry.roomGuid || '',
+                            rawName: entry.rawName || '',
+                            canonicalName: entry.canonicalName || '',
+                            canonicalKey: entry.canonicalKey || '',
+                            matched: entry.matched,
+                        })));
+                    } else {
+                        console.log('[Lighthouse] Canonicalization results:', diagnostics.canonicalization);
+                    }
+                } else {
+                    console.log('[Lighthouse] Canonicalization results: none recorded');
+                }
+            }
+
+            if (options.preload !== false) {
+                const preloadDates = collectPreloadDatesFromPayload(payload, dateISO);
+                const targets = Array.from(preloadDates).filter(iso => iso && iso !== dateISO && !lighthouseState.byDate.has(iso));
+                if (targets.length) {
+                    targets.sort();
+                    console.log(`[Lighthouse] Preloading order span dates for ${dateISO}:`, targets);
+                    for (const preloadISO of targets) {
+                        if (lighthouseState.pendingFetches.has(preloadISO)) continue;
+                        await ensureLighthouseData(preloadISO, { silent: true, skipPreload: true });
+                    }
+                }
+            }
+
+            return { payload, summary };
+        }
+
+        async function ensureLighthouseData(dateISO, options = {}) {
+            if (!dateISO) return null;
+            if (lighthouseState.byDate.has(dateISO)) {
+                if (options.refreshOnComplete) {
+                    refreshLighthousePanel();
+                    redraw();
+                }
+                return lighthouseState.byDate.get(dateISO);
+            }
+            if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) return null;
+            if (!(lighthouseState.pendingFetches instanceof Map)) {
+                lighthouseState.pendingFetches = new Map();
+            }
+            if (lighthouseState.pendingFetches.has(dateISO)) {
+                const existing = lighthouseState.pendingFetches.get(dateISO);
+                if (options.refreshOnComplete) {
+                    existing
+                        .then(() => {
+                            refreshLighthousePanel();
+                            redraw();
+                        })
+                        .catch(error => console.warn(`[Lighthouse] Background fetch for ${dateISO} failed`, error));
+                }
+                if (options.awaitResult) {
+                    try {
+                        const result = await existing;
+                        return result?.summary || null;
+                    } catch {
+                        return null;
+                    }
+                }
+                return null;
+            }
+
+            const pending = (async () => {
+                try {
+                    const result = await performLighthouseFetch(dateISO, {
+                        log: options.log === true,
+                        preload: options.skipPreload ? false : true,
+                    });
+                    if (options.refreshOnComplete) {
+                        refreshLighthousePanel();
+                        redraw();
+                    }
+                    return result;
+                } catch (error) {
+                    if (options.silent) {
+                        console.warn(`[Lighthouse] Failed to fetch Lighthouse data for ${dateISO}`, error);
+                    } else {
+                        console.error(`[Lighthouse] Failed to fetch Lighthouse data for ${dateISO}`, error);
+                    }
+                    throw error;
+                }
+            })();
+
+            lighthouseState.pendingFetches.set(dateISO, pending);
+            pending.finally(() => {
+                if (lighthouseState.pendingFetches.get(dateISO) === pending) {
+                    lighthouseState.pendingFetches.delete(dateISO);
+                }
+            });
+            pending.catch(() => {});
+
+            if (options.awaitResult) {
+                try {
+                    const result = await pending;
+                    return result?.summary || null;
+                } catch {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        function warmLighthouseDataForCurrentView(options = {}) {
+            if (!LIGHTHOUSE_ENABLED || !LIGHTHOUSE_BRIDGE) return;
+            const silent = options.silent !== false;
+            const refreshOnComplete = options.refreshOnComplete !== false;
+            const log = options.log === true;
+            const force = options.force === true;
+
+            if (viewMode === 'week') {
+                const ws = weekStart(currentDate);
+                for (let i = 0; i < 7; i++) {
+                    const day = new Date(ws);
+                    day.setDate(ws.getDate() + i);
+                    const iso = toLocalISODate(day);
+                    if (force || !lighthouseState.byDate.has(iso)) {
+                        ensureLighthouseData(iso, {
+                            silent,
+                            refreshOnComplete,
+                            log,
+                        });
+                    }
+                }
+                return;
+            }
+
+            const iso = toLocalISODate(currentDate);
+            if (force || !lighthouseState.byDate.has(iso)) {
+                ensureLighthouseData(iso, {
+                    silent,
+                    refreshOnComplete,
+                    log,
+                });
+            }
         }
 
         function getLighthouseSummary(dateISO) {
@@ -3482,97 +3772,15 @@
             console.log('[Lighthouse] Sync requested for', dateISO);
             setLighthouseStatus('Syncing…', 'syncing');
             try {
-                const payload = await LIGHTHOUSE_BRIDGE.getActions(dateISO);
-                console.log('[Lighthouse] Raw payload snapshot:', payload);
-                const payloadKeys = payload && typeof payload === 'object' ? Object.keys(payload) : [];
-                console.log('[Lighthouse] Payload top-level keys:', payloadKeys);
-                const resolvedDate = resolveLighthouseDateKey(payload, dateISO);
-                console.log('[Lighthouse] Resolved flowsheet date:', resolvedDate);
-                const structuredActions = extractStructuredRoomActions(payload);
-                console.log('[Lighthouse] Structured roomActions count:', structuredActions.length);
-                let payloadJobCount = 0;
-                structuredActions.forEach(roomAction => {
-                    payloadJobCount += extractRoomJobs(roomAction).length;
-                });
-                console.log('[Lighthouse] Jobs detected in payload:', payloadJobCount);
-                if (!structuredActions.length) {
-                    const fallbackList = listFromPayload(payload);
-                    console.log('[Lighthouse] Fallback action list length:', fallbackList.length);
-                }
-                const summary = await saveLighthousePayload(dateISO, payload);
-                const diagnostics = summary.diagnostics || {};
-                const matchedRooms = diagnostics.matchedRoomKeys instanceof Set ? Array.from(diagnostics.matchedRoomKeys.values()) : (Array.isArray(diagnostics.matchedRoomKeys) ? diagnostics.matchedRoomKeys : []);
-                const unmatchedRooms = Array.isArray(diagnostics.unmatchedRooms) ? diagnostics.unmatchedRooms : [];
-                const totalJobsSeen = typeof diagnostics.jobsConsidered === 'number' ? diagnostics.jobsConsidered : (typeof diagnostics.jobCount === 'number' ? diagnostics.jobCount : payloadJobCount);
-                const jobsMatchedForDate = typeof diagnostics.jobsMatchedDate === 'number' ? diagnostics.jobsMatchedDate : (typeof diagnostics.jobCount === 'number' ? diagnostics.jobCount : 0);
-                const jobsDroppedByEvents = typeof diagnostics.jobsDroppedByEvents === 'number' ? diagnostics.jobsDroppedByEvents : 0;
-                let jobsDroppedByDate = typeof diagnostics.jobsDroppedByDate === 'number' ? diagnostics.jobsDroppedByDate : 0;
-                if (!jobsDroppedByDate) {
-                    const fallbackDrop = Math.max(0, totalJobsSeen - jobsMatchedForDate - jobsDroppedByEvents);
-                    jobsDroppedByDate = fallbackDrop;
-                }
-                const payloadDateForLog = diagnostics.payloadDate || resolvedDate;
-                console.log(
-                    `[Lighthouse] Requested ${dateISO}, payload ${payloadDateForLog || 'unknown'}, ${totalJobsSeen} jobs found, ` +
-                    `${jobsMatchedForDate} matched for requested date` +
-                    (jobsDroppedByDate ? `, ${jobsDroppedByDate} filtered by date` : '') +
-                    (jobsDroppedByEvents ? `; ${jobsDroppedByEvents} filtered by events` : '') + '.'
-                );
-                if (diagnostics.jobsWithoutDateInfo) {
-                    console.log('[Lighthouse] Jobs without explicit date info treated as matches:', diagnostics.jobsWithoutDateInfo);
-                }
-                if (Array.isArray(diagnostics.jobDateDiscarded) && diagnostics.jobDateDiscarded.length) {
-                    const discardedSample = diagnostics.jobDateDiscarded.slice(0, 5);
-                    console.log('[Lighthouse] Jobs discarded due to date mismatch:', {
-                        count: diagnostics.jobDateDiscarded.length,
-                        sample: discardedSample,
-                    });
-                }
-                if (Array.isArray(diagnostics.jobDateMatches) && diagnostics.jobDateMatches.length) {
-                    const matchSample = diagnostics.jobDateMatches.slice(0, 5);
-                    console.log('[Lighthouse] Jobs matched by date sample:', {
-                        count: diagnostics.jobDateMatches.length,
-                        sample: matchSample,
-                    });
-                }
-                console.log('[Lighthouse] Summary diagnostics:', {
-                    requestedDate: diagnostics.requestedDate || dateISO,
-                    storeKey: diagnostics.storeKey || resolvedDate,
-                    roomActionsConsidered: diagnostics.roomActionsConsidered || 0,
-                    roomActionCount: diagnostics.roomActionCount || 0,
-                    jobCount: diagnostics.jobCount || 0,
-                    jobsConsidered: diagnostics.jobsConsidered || 0,
-                    jobsMatchedDate: diagnostics.jobsMatchedDate || diagnostics.jobCount || 0,
-                    jobsDroppedByDate: diagnostics.jobsDroppedByDate || 0,
-                    jobsWithoutDateInfo: diagnostics.jobsWithoutDateInfo || 0,
-                    jobsWithEquipment: diagnostics.jobsWithEquipment || 0,
-                    jobsWithoutEquipment: diagnostics.jobsWithoutEquipment || 0,
-                    usedStructuredRoomActions: Boolean(diagnostics.usedStructuredRoomActions),
-                    fallbackListLength: diagnostics.fallbackListLength || 0,
-                    matchedRoomKeys: matchedRooms,
-                    unmatchedRooms,
-                });
-                if (Array.isArray(diagnostics.canonicalization) && diagnostics.canonicalization.length) {
-                    if (typeof console.table === 'function') {
-                        console.table(diagnostics.canonicalization.map(entry => ({
-                            roomGuid: entry.roomGuid || '',
-                            rawName: entry.rawName || '',
-                            canonicalName: entry.canonicalName || '',
-                            canonicalKey: entry.canonicalKey || '',
-                            matched: entry.matched,
-                        })));
-                    } else {
-                        console.log('[Lighthouse] Canonicalization results:', diagnostics.canonicalization);
-                    }
-                } else {
-                    console.log('[Lighthouse] Canonicalization results: none recorded');
-                }
+                const result = await performLighthouseFetch(dateISO, { log: true });
+                const summary = result?.summary || getLighthouseSummary(dateISO) || null;
                 const dateLabel = formatLighthouseDateLabel(dateISO);
-                if (summary.avActions.length) {
+
+                if (summary && Array.isArray(summary.avActions) && summary.avActions.length) {
                     setLighthouseStatus('Synced', 'success');
                     const successText = dateLabel ? `Synced for ${dateLabel}` : 'Synced';
                     setLighthousePanelStatus(successText, 'success');
-                } else {
+                } else if (summary) {
                     const emptyState = describeLighthouseEmptyState(summary, dateISO);
                     if (emptyState) {
                         setLighthouseStatus(emptyState.statusText, emptyState.statusType);
@@ -3582,9 +3790,14 @@
                         setLighthouseStatus('Synced (no AV data)', 'syncing');
                         setLighthousePanelStatus(fallbackMessage, null);
                     }
+                } else {
+                    setLighthouseStatus('Synced (no data)', 'syncing');
+                    setLighthousePanelStatus('No Lighthouse data available for this date.', null);
                 }
+
                 await refreshLighthousePanel();
                 redraw();
+                warmLighthouseDataForCurrentView({ silent: true, refreshOnComplete: true });
                 console.log('[Lighthouse] Sync completed for', dateISO);
                 return summary;
             } catch (err) {
@@ -4706,7 +4919,9 @@
             nd.setDate(currentDate.getDate() + offset);
             currentDate = nd;
             syncDateUI(currentDate);
+            refreshLighthousePanel();
             redraw();
+            warmLighthouseDataForCurrentView({ silent: true, refreshOnComplete: true });
         }
 
         /* ========= CALENDAR ========= */
@@ -4771,7 +4986,9 @@
                         d = +td.getAttribute("data-d");
                     currentDate = new Date(y, m, d);
                     syncDateUI(currentDate);
+                    refreshLighthousePanel();
                     redraw();
+                    warmLighthouseDataForCurrentView({ silent: true, refreshOnComplete: true });
                 });
             });
         }
@@ -4942,7 +5159,9 @@
                         lighthouseState.selectedCompany = null;
                     }
                     syncDateUI(currentDate);
+                    refreshLighthousePanel();
                     redraw();
+                    warmLighthouseDataForCurrentView({ silent: true, refreshOnComplete: true });
                 });
             });
 
@@ -4951,7 +5170,9 @@
             document.getElementById("jumpToday").addEventListener("click", () => {
                 currentDate = new Date();
                 syncDateUI(currentDate);
+                refreshLighthousePanel();
                 redraw();
+                warmLighthouseDataForCurrentView({ silent: true, refreshOnComplete: true });
             });
             document.getElementById("toggleShowRooms").addEventListener("click", () => {
                 showAllRooms = !showAllRooms;
@@ -4989,6 +5210,7 @@
             // initial
             syncDateUI(currentDate);
             refreshLighthousePanel();
+            warmLighthouseDataForCurrentView({ silent: true, refreshOnComplete: true });
             google.charts.setOnLoadCallback(() => redraw());
         }
         window.addEventListener("resize", () => redraw());

@@ -1851,84 +1851,388 @@
                 return;
             }
 
-            // Company + Event + Date + Room + Function Type + Post As
-            const makeKey = ev => [
-                ev["Company Name"], ev["Event Name"], ev["Day of Event"],
-                ev["Function Space"], ev["Function Type"], ev["Post As"] || ""
-            ].join("||");
+            const HYPHEN_RE = /[\u2010-\u2015]/g;
 
-            const mapB = new Map();
-            reportB.forEach(ev => mapB.set(makeKey(ev), ev));
+            const cleanValue = value => (value ?? "").toString().replace(HYPHEN_RE, "-").replace(/\s+/g, " ").trim();
 
-            const companyGroups = {};
-            reportA.forEach(ev => {
-                const key = makeKey(ev);
-                const old = mapB.get(key);
-                if (!old) return; // only overlapping entries
+            const normalizeText = value => cleanValue(value).toLowerCase();
 
-                const diffs = [];
-                ["Start Time", "End Time", "Setup Style", "Event Status"].forEach(field => {
-                    if ((ev[field] || "").trim() !== (old[field] || "").trim()) {
-                        diffs.push({
-                            field,
-                            prev: old[field] || "",
-                            newest: ev[field] || ""
-                        });
+            function normalizeTime(value) {
+                const raw = cleanValue(value);
+                if (!raw) return { key: "", minutes: null, display: "" };
+
+                const compactMatch = raw.match(/^(\d{1,2})(?::(\d{1,2}))?\s*(AM|PM)?$/i);
+                if (compactMatch) {
+                    let h = Number(compactMatch[1]);
+                    let m = Number(compactMatch[2] || "0");
+                    const mod = (compactMatch[3] || "").toUpperCase();
+                    if (!Number.isNaN(h) && !Number.isNaN(m)) {
+                        if (mod === "PM" && h < 12) h += 12;
+                        if (mod === "AM" && h === 12) h = 0;
+                        const key = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                        const stub = new Date(2000, 0, 1, h, m);
+                        return { key, minutes: h * 60 + m, display: formatAMPM(stub) };
                     }
-                });
-
-                if (diffs.length) {
-                    const company = ev["Company Name"] || "";
-                    const event = ev["Event Name"] || "";
-                    const space = ev["Function Space"] || "";
-                    const ftype = ev["Function Type"] || "";
-                    const pas = ev["Post As"] || "";
-                    if (!companyGroups[company]) companyGroups[company] = {};
-                    if (!companyGroups[company][event]) companyGroups[company][event] = [];
-                    companyGroups[company][event].push({
-                        space,
-                        ftype,
-                        pas,
-                        diffs,
-                        date: ev["Day of Event"]
-                    });
                 }
-            });
 
-            if (Object.keys(companyGroups).length === 0) {
+                const [ph, pm] = parseTime(raw);
+                if (!Number.isNaN(ph) && !Number.isNaN(pm)) {
+                    const key = `${String(ph).padStart(2, "0")}:${String(pm).padStart(2, "0")}`;
+                    const stub = new Date(2000, 0, 1, ph, pm);
+                    return { key, minutes: ph * 60 + pm, display: formatAMPM(stub) };
+                }
+
+                return { key: raw.toLowerCase(), minutes: null, display: raw };
+            }
+
+            function normalizeDate(value) {
+                const raw = cleanValue(value);
+                const parsed = parseDayOfEvent(raw);
+                const display = raw || (parsed ? parsed.toLocaleDateString("en-US", {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric"
+                }) : "");
+                const key = parsed ? toLocalISODate(parsed) : display.toLowerCase();
+                return { parsed, key, display };
+            }
+
+            function eventRange(events) {
+                let start = null;
+                let end = null;
+                events.forEach(ev => {
+                    const d = parseDayOfEvent(ev["Day of Event"]);
+                    if (!d) return;
+                    if (!start || d < start) start = d;
+                    if (!end || d > end) end = d;
+                });
+                return start && end ? { start, end } : null;
+            }
+
+            function intersectRanges(a, b) {
+                if (!a || !b) return null;
+                const start = a.start > b.start ? a.start : b.start;
+                const end = a.end < b.end ? a.end : b.end;
+                return start > end ? null : { start, end };
+            }
+
+            const rangeA = eventRange(reportA);
+            const rangeB = eventRange(reportB);
+            const overlap = intersectRanges(rangeA, rangeB);
+
+            if (!overlap) {
+                container.innerHTML = "<p style='opacity:.7'>No overlapping dates between the reports.</p>";
+                return;
+            }
+
+            const withinOverlap = parsedDate => parsedDate && parsedDate >= overlap.start && parsedDate <= overlap.end;
+
+            const buildEvent = (ev, index) => {
+                const dateInfo = normalizeDate(ev["Day of Event"]);
+                if (!withinOverlap(dateInfo.parsed)) return null;
+
+                const startInfo = normalizeTime(ev["Start Time"]);
+                const endInfo = normalizeTime(ev["End Time"]);
+
+                const companyDisplay = cleanValue(ev["Company Name"]);
+                const eventDisplay = cleanValue(ev["Event Name"]);
+                const spaceDisplay = cleanValue(ev["Function Space"]);
+                const typeDisplay = cleanValue(ev["Function Type"]);
+                const setupDisplay = cleanValue(ev["Setup Style"]);
+                const postAsDisplay = cleanValue(ev["Post As"]);
+
+                const identityKey = [
+                    dateInfo.key,
+                    startInfo.key,
+                    endInfo.key,
+                    normalizeText(ev["Function Space"]),
+                    normalizeText(ev["Function Type"]),
+                    normalizeText(ev["Setup Style"])
+                ].join("||");
+
+                const nameKey = [
+                    normalizeText(ev["Company Name"]),
+                    normalizeText(ev["Event Name"]),
+                    dateInfo.key
+                ].join("||");
+
+                return {
+                    index,
+                    original: ev,
+                    parsedDate: dateInfo.parsed,
+                    normalized: {
+                        dateKey: dateInfo.key,
+                        start: startInfo.key,
+                        end: endInfo.key,
+                        startMinutes: startInfo.minutes,
+                        endMinutes: endInfo.minutes,
+                        company: normalizeText(ev["Company Name"]),
+                        event: normalizeText(ev["Event Name"]),
+                        space: normalizeText(ev["Function Space"]),
+                        type: normalizeText(ev["Function Type"]),
+                        setup: normalizeText(ev["Setup Style"]),
+                        postAs: normalizeText(ev["Post As"])
+                    },
+                    display: {
+                        date: dateInfo.display,
+                        start: startInfo.display,
+                        end: endInfo.display,
+                        company: companyDisplay,
+                        event: eventDisplay,
+                        space: spaceDisplay,
+                        type: typeDisplay,
+                        setup: setupDisplay,
+                        postAs: postAsDisplay
+                    },
+                    identityKey,
+                    nameKey,
+                    matched: false
+                };
+            };
+
+            const previousEvents = reportB
+                .map((ev, index) => buildEvent(ev, index))
+                .filter(Boolean);
+            const newestEvents = reportA
+                .map((ev, index) => buildEvent(ev, index))
+                .filter(Boolean);
+
+            if (!previousEvents.length && !newestEvents.length) {
                 container.innerHTML = "<p style='opacity:.7'>✅ No changes detected between the reports.</p>";
                 return;
             }
 
-            for (const company of Object.keys(companyGroups)) {
+            const byIdentity = new Map();
+            const byName = new Map();
+
+            const register = ev => {
+                if (!byIdentity.has(ev.identityKey)) byIdentity.set(ev.identityKey, []);
+                byIdentity.get(ev.identityKey).push(ev);
+                if (!byName.has(ev.nameKey)) byName.set(ev.nameKey, []);
+                byName.get(ev.nameKey).push(ev);
+            };
+
+            previousEvents.forEach(register);
+
+            const detach = ev => {
+                const listA = byIdentity.get(ev.identityKey);
+                if (listA) {
+                    const idx = listA.indexOf(ev);
+                    if (idx >= 0) listA.splice(idx, 1);
+                    if (!listA.length) byIdentity.delete(ev.identityKey);
+                }
+                const listB = byName.get(ev.nameKey);
+                if (listB) {
+                    const idx = listB.indexOf(ev);
+                    if (idx >= 0) listB.splice(idx, 1);
+                    if (!listB.length) byName.delete(ev.nameKey);
+                }
+            };
+
+            const orderKeyFor = ev => {
+                const datePart = ev.normalized.dateKey || "9999-99-99";
+                const timePart = ev.normalized.start || "99:99";
+                return `${datePart}||${timePart}||${String(ev.index).padStart(4, "0")}`;
+            };
+
+            const scoreDifference = (a, b) => {
+                let score = 0;
+                ["start", "end", "space", "type", "setup"].forEach(field => {
+                    if (a.normalized[field] !== b.normalized[field]) score += 1;
+                });
+                const startDiff = a.normalized.startMinutes != null && b.normalized.startMinutes != null
+                    ? Math.abs(a.normalized.startMinutes - b.normalized.startMinutes)
+                    : 0;
+                const endDiff = a.normalized.endMinutes != null && b.normalized.endMinutes != null
+                    ? Math.abs(a.normalized.endMinutes - b.normalized.endMinutes)
+                    : 0;
+                return score + (startDiff + endDiff) / 1440;
+            };
+
+            const findMatch = ev => {
+                const idMatch = byIdentity.get(ev.identityKey);
+                if (idMatch && idMatch.length) {
+                    const match = idMatch[0];
+                    detach(match);
+                    match.matched = true;
+                    return match;
+                }
+
+                const candidates = byName.get(ev.nameKey);
+                if (!candidates || !candidates.length) return null;
+
+                let best = null;
+                let bestScore = Infinity;
+                candidates.forEach(candidate => {
+                    if (candidate.matched) return;
+                    if (candidate.normalized.dateKey !== ev.normalized.dateKey) return;
+                    const score = scoreDifference(ev, candidate);
+                    if (score < bestScore) {
+                        bestScore = score;
+                        best = candidate;
+                    }
+                });
+
+                if (!best) return null;
+
+                detach(best);
+                best.matched = true;
+                return best;
+            };
+
+            const makeFieldDiff = (field, prevValue, newValue) => ({
+                type: "field",
+                field,
+                prev: prevValue || "—",
+                newest: newValue || "—"
+            });
+
+            const computeDiffs = (latest, previous) => {
+                const diffs = [];
+                if (latest.normalized.type !== previous.normalized.type) {
+                    diffs.push(makeFieldDiff("Function Type", previous.display.type, latest.display.type));
+                }
+                if (latest.normalized.start !== previous.normalized.start) {
+                    diffs.push(makeFieldDiff("Start Time", previous.display.start, latest.display.start));
+                }
+                if (latest.normalized.end !== previous.normalized.end) {
+                    diffs.push(makeFieldDiff("End Time", previous.display.end, latest.display.end));
+                }
+                if (latest.normalized.space !== previous.normalized.space) {
+                    diffs.push(makeFieldDiff("Function Space", previous.display.space, latest.display.space));
+                }
+                if (latest.normalized.setup !== previous.normalized.setup) {
+                    diffs.push(makeFieldDiff("Setup Style", previous.display.setup, latest.display.setup));
+                }
+                if (latest.normalized.postAs !== previous.normalized.postAs) {
+                    diffs.push(makeFieldDiff("Post As", previous.display.postAs, latest.display.postAs));
+                }
+                return diffs;
+            };
+
+            const formatHeader = (space, type) => {
+                if (space && type) return `${space} — ${type}`;
+                return space || type || "";
+            };
+
+            const buildChange = (kind, latest, previous, diffs) => {
+                const base = latest || previous;
+                const company = (kind === "removed" ? previous.display.company : latest.display.company) || "—";
+                const eventName = (kind === "removed" ? previous.display.event : latest.display.event) || "—";
+                let header = "";
+                let pas = "";
+
+                if (kind === "removed") {
+                    header = formatHeader(previous.display.space, previous.display.type);
+                    pas = previous.display.postAs;
+                } else if (kind === "added") {
+                    header = formatHeader(latest.display.space, latest.display.type);
+                    pas = latest.display.postAs;
+                } else {
+                    const prevHeader = formatHeader(previous.display.space, previous.display.type);
+                    const newHeader = formatHeader(latest.display.space, latest.display.type);
+                    if (latest.normalized.space !== previous.normalized.space || latest.normalized.type !== previous.normalized.type) {
+                        header = prevHeader && newHeader ? `${prevHeader} → ${newHeader}` : newHeader;
+                    } else {
+                        header = newHeader;
+                    }
+                    pas = latest.display.postAs;
+                }
+
+                const dateText = kind === "removed" ? previous.display.date : latest.display.date;
+
+                return {
+                    company,
+                    event: eventName,
+                    header,
+                    pas,
+                    date: dateText,
+                    diffs,
+                    orderKey: orderKeyFor(base)
+                };
+            };
+
+            const changes = [];
+
+            newestEvents.forEach(ev => {
+                const match = findMatch(ev);
+                if (match) {
+                    const diffs = computeDiffs(ev, match);
+                    if (diffs.length) {
+                        changes.push(buildChange("updated", ev, match, diffs));
+                    }
+                    ev.matched = true;
+                } else {
+                    changes.push(buildChange("added", ev, null, [{ type: "note", message: "New event added." }]));
+                }
+            });
+
+            previousEvents.forEach(ev => {
+                if (!ev.matched) {
+                    changes.push(buildChange("removed", null, ev, [{ type: "note", message: "Event removed." }]));
+                }
+            });
+
+            if (!changes.length) {
+                container.innerHTML = "<p style='opacity:.7'>✅ No changes detected between the reports.</p>";
+                return;
+            }
+
+            const companyGroups = {};
+            changes.forEach(change => {
+                const company = change.company || "—";
+                const eventName = change.event || "—";
+                if (!companyGroups[company]) companyGroups[company] = {};
+                if (!companyGroups[company][eventName]) companyGroups[company][eventName] = [];
+                companyGroups[company][eventName].push(change);
+            });
+
+            Object.values(companyGroups).forEach(events => {
+                Object.values(events).forEach(list => {
+                    list.sort((a, b) => a.orderKey.localeCompare(b.orderKey));
+                });
+            });
+
+            const sortedCompanies = Object.keys(companyGroups).sort((a, b) => a.localeCompare(b));
+
+            sortedCompanies.forEach(company => {
                 const compHeader = document.createElement("div");
                 compHeader.className = "company-header";
                 compHeader.textContent = company;
                 container.appendChild(compHeader);
 
-                for (const event of Object.keys(companyGroups[company])) {
+                const events = companyGroups[company];
+                const sortedEvents = Object.keys(events).sort((a, b) => a.localeCompare(b));
+
+                sortedEvents.forEach(event => {
                     const evHeader = document.createElement("div");
                     evHeader.className = "event-header";
                     evHeader.textContent = event;
                     container.appendChild(evHeader);
 
-                    companyGroups[company][event].forEach(change => {
+                    events[event].forEach(change => {
                         const card = document.createElement("div");
                         card.className = "change-card";
                         card.innerHTML = `
-            <h4>${change.space} — ${change.ftype} ${change.pas?("· "+change.pas):""}</h4>
+            <h4>${change.header}${change.pas ? ` · ${change.pas}` : ""}</h4>
             <div style="font-size:.8rem;color:#555;margin-bottom:4px;">${change.date}</div>
             <ul>
-              ${change.diffs.map(d=>
-                `<li>${d.field}:
-                  <span class="change-prev">${d.prev}</span> →
-                  <span class="change-new">${d.newest}</span>
-                </li>`).join("")}
+              ${change.diffs.map(d => {
+                            if (d.type === "note") {
+                                return `<li>${d.message}</li>`;
+                            }
+                            const label = d.field ? `${d.field}: ` : "";
+                            const prev = d.prev !== undefined ? `<span class="change-prev">${d.prev}</span>` : "";
+                            const newest = d.newest !== undefined ? `<span class="change-new">${d.newest}</span>` : "";
+                            const arrow = prev && newest ? " → " : "";
+                            return `<li>${label}${prev}${arrow}${newest}</li>`;
+                        }).join("")}
             </ul>`;
                         container.appendChild(card);
                     });
-                }
-            }
+                });
+            });
         }
 
 

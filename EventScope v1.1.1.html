@@ -473,6 +473,13 @@
             margin: 14px 0 6px;
         }
 
+        .date-header {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin: 18px 0 6px;
+            color: #bfdbfe;
+        }
+
         .event-header {
             font-size: 1rem;
             font-weight: 500;
@@ -494,6 +501,28 @@
             margin: 0 0 6px;
             font-size: .95rem;
             color: #111;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 9999px;
+            margin-right: 6px;
+            color: #fff;
+        }
+
+        .badge-new {
+            background-color: #28a745;
+        }
+
+        .badge-changed {
+            background-color: #ffc107;
+        }
+
+        .badge-removed {
+            background-color: #dc3545;
         }
 
         .change-card ul {
@@ -1095,6 +1124,21 @@
             "Crescent Rounds", "Lounge", "Storage"
         ];
 
+        const MATCH_HYPHEN_RE = /[\u2010-\u2015]/g;
+
+        function normalizeForMatch(value) {
+            return (value ?? "")
+                .toString()
+                .replace(MATCH_HYPHEN_RE, "-")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toLowerCase();
+        }
+
+        const KNOWN_TYPE_LOOKUP = new Map(FUNCTION_TYPES.map(type => [normalizeForMatch(type), type]));
+        const KNOWN_SETUP_LOOKUP = new Map(SETUP_STYLES.map(style => [normalizeForMatch(style), style]));
+        const KNOWN_SPACE_LOOKUP = new Map(FUNCTION_SPACES_HINTS.map(space => [normalizeForMatch(space), space]));
+
         const GROUPINGS = {
             "Whitley Ballroom": ["Salon I", "Salon II", "Salon III", "Salon IV", "Salon V", "Salon VI", "Salon VII", "Salon VIII"],
             "Plaza Ballroom": ["Plaza I", "Plaza II", "Plaza III"],
@@ -1112,7 +1156,8 @@
 
         const TIME_RANGE_RE = /(\d{1,2}:\d{2}\s?[AP]M)\s*[-–—]\s*(\d{1,2}:\d{2}\s?[AP]M)/i;
         const DATE_LINE_RE = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), .* \d{4}$/i;
-        const COUNTS_RE = /^\d+\/\d+\/(?:\d+|__)$/;
+        const COUNTS_RE = /^\s*(?:\d+|__)(?:\s*\/\s*(?:\d+|__)){2,3}\s*$/;
+        const ORDER_NUMBER_RE = /^\d+$/;
         const POST_AS_RE = /Post As[:\-]?\s*(.+)/i;
 
         function escapeRegExp(str) {
@@ -1840,8 +1885,7 @@
         }
 
         /* ========= CHANGE LOG =========
-           (Kept as your working logic from last version.
-            Only re-rendered when both reports present and Change Log tab is opened.) */
+           (Rewritten to compare structured events instead of raw line order.) */
         function generateChangeLog(reportA, reportB) {
             const container = document.getElementById("changeLog");
             container.innerHTML = "";
@@ -1851,87 +1895,564 @@
                 return;
             }
 
-            // Company + Event + Date + Room + Function Type + Post As
-            const makeKey = ev => [
-                ev["Company Name"], ev["Event Name"], ev["Day of Event"],
-                ev["Function Space"], ev["Function Type"], ev["Post As"] || ""
-            ].join("||");
+            const HYPHEN_RE = /[\u2010-\u2015]/g;
 
-            const mapB = new Map();
-            reportB.forEach(ev => mapB.set(makeKey(ev), ev));
+            const cleanValue = value => (value ?? "").toString().replace(HYPHEN_RE, "-").replace(/\s+/g, " ").trim();
 
-            const companyGroups = {};
-            reportA.forEach(ev => {
-                const key = makeKey(ev);
-                const old = mapB.get(key);
-                if (!old) return; // only overlapping entries
+            const normalizeText = value => cleanValue(value).toLowerCase();
 
-                const diffs = [];
-                ["Start Time", "End Time", "Setup Style", "Event Status"].forEach(field => {
-                    if ((ev[field] || "").trim() !== (old[field] || "").trim()) {
-                        diffs.push({
-                            field,
-                            prev: old[field] || "",
-                            newest: ev[field] || ""
-                        });
-                    }
-                });
+            const appendNewMarker = (value, isNew) => {
+                const base = value || "";
+                if (!base || !isNew) return base;
+                if (/\(new\)$/i.test(base)) return base;
+                return `${base} (new)`;
+            };
 
-                if (diffs.length) {
-                    const company = ev["Company Name"] || "";
-                    const event = ev["Event Name"] || "";
-                    const space = ev["Function Space"] || "";
-                    const ftype = ev["Function Type"] || "";
-                    const pas = ev["Post As"] || "";
-                    if (!companyGroups[company]) companyGroups[company] = {};
-                    if (!companyGroups[company][event]) companyGroups[company][event] = [];
-                    companyGroups[company][event].push({
-                        space,
-                        ftype,
-                        pas,
-                        diffs,
-                        date: ev["Day of Event"]
-                    });
+            const isKnownType = value => {
+                const normalized = normalizeForMatch(value);
+                return !!normalized && KNOWN_TYPE_LOOKUP.has(normalized);
+            };
+
+            const isKnownSetup = value => {
+                const normalized = normalizeForMatch(value);
+                return !!normalized && KNOWN_SETUP_LOOKUP.has(normalized);
+            };
+
+            const isKnownSpace = value => {
+                const normalized = normalizeForMatch(value);
+                if (!normalized) return false;
+                if (KNOWN_SPACE_LOOKUP.has(normalized)) return true;
+                const base = value.includes("(") ? value.split("(")[0].trim() : "";
+                if (base) {
+                    const baseNorm = normalizeForMatch(base);
+                    if (KNOWN_SPACE_LOOKUP.has(baseNorm)) return true;
                 }
-            });
+                return false;
+            };
 
-            if (Object.keys(companyGroups).length === 0) {
+            function normalizeStatus(value) {
+                const raw = normalizeText(value);
+                if (!raw) return "";
+                if (raw.includes("definite")) return "definite";
+                if (raw === "t1/t2" || raw === "t1t2") return "t1/t2";
+                if (raw === "t1") return "t1";
+                if (raw === "t2") return "t2";
+                if (raw === "hold" || raw === "holding" || raw === "tentative") return "hold";
+                return raw;
+            }
+
+            function normalizeTime(value) {
+                const raw = cleanValue(value);
+                if (!raw) return { key: "", minutes: null, display: "" };
+
+                const compactMatch = raw.match(/^(\d{1,2})(?::(\d{1,2}))?\s*(AM|PM)?$/i);
+                if (compactMatch) {
+                    let h = Number(compactMatch[1]);
+                    let m = Number(compactMatch[2] || "0");
+                    const mod = (compactMatch[3] || "").toUpperCase();
+                    if (!Number.isNaN(h) && !Number.isNaN(m)) {
+                        if (mod === "PM" && h < 12) h += 12;
+                        if (mod === "AM" && h === 12) h = 0;
+                        const key = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                        const stub = new Date(2000, 0, 1, h, m);
+                        return { key, minutes: h * 60 + m, display: formatAMPM(stub) };
+                    }
+                }
+
+                const [ph, pm] = parseTime(raw);
+                if (!Number.isNaN(ph) && !Number.isNaN(pm)) {
+                    const key = `${String(ph).padStart(2, "0")}:${String(pm).padStart(2, "0")}`;
+                    const stub = new Date(2000, 0, 1, ph, pm);
+                    return { key, minutes: ph * 60 + pm, display: formatAMPM(stub) };
+                }
+
+                return { key: raw.toLowerCase(), minutes: null, display: raw };
+            }
+
+            function normalizeDate(value) {
+                const raw = cleanValue(value);
+                const parsed = parseDayOfEvent(raw);
+                const display = raw || (parsed ? parsed.toLocaleDateString("en-US", {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric"
+                }) : "");
+                const key = parsed ? toLocalISODate(parsed) : display.toLowerCase();
+                return { parsed, key, display };
+            }
+
+            const buildKey = parts => parts.map(p => p || "").join("||");
+
+            function eventRange(events) {
+                let start = null;
+                let end = null;
+                events.forEach(ev => {
+                    const d = parseDayOfEvent(ev["Day of Event"]);
+                    if (!d) return;
+                    if (!start || d < start) start = d;
+                    if (!end || d > end) end = d;
+                });
+                return start && end ? { start, end } : null;
+            }
+
+            function intersectRanges(a, b) {
+                if (!a || !b) return null;
+                const start = a.start > b.start ? a.start : b.start;
+                const end = a.end < b.end ? a.end : b.end;
+                return start > end ? null : { start, end };
+            }
+
+            const rangeA = eventRange(reportA);
+            const rangeB = eventRange(reportB);
+            const overlap = intersectRanges(rangeA, rangeB);
+
+            if (!overlap) {
+                container.innerHTML = "<p style='opacity:.7'>No overlapping dates between the reports.</p>";
+                return;
+            }
+
+            const withinOverlap = parsedDate => parsedDate && parsedDate >= overlap.start && parsedDate <= overlap.end;
+
+            const buildEvent = (ev, index) => {
+                const dateInfo = normalizeDate(ev["Day of Event"]);
+                if (!withinOverlap(dateInfo.parsed)) return null;
+
+                const startInfo = normalizeTime(ev["Start Time"]);
+                const endInfo = normalizeTime(ev["End Time"]);
+
+                const flags = ev.__flags || {};
+                const rawSpace = cleanValue(ev["Function Space"]);
+                const rawType = cleanValue(ev["Function Type"]);
+                const rawSetup = cleanValue(ev["Setup Style"]);
+                const spaceIsNew = flags.spaceNew !== undefined ? flags.spaceNew : (!!rawSpace && !isKnownSpace(rawSpace));
+                const typeIsNew = flags.typeNew !== undefined ? flags.typeNew : (!!rawType && !isKnownType(rawType));
+                const setupIsNew = flags.setupNew !== undefined ? flags.setupNew : (!!rawSetup && !isKnownSetup(rawSetup));
+                const companyDisplay = cleanValue(ev["Company Name"]);
+                const eventDisplay = cleanValue(ev["Event Name"]);
+                const spaceDisplay = appendNewMarker(rawSpace, spaceIsNew);
+                const typeDisplay = appendNewMarker(rawType, typeIsNew);
+                const setupDisplay = appendNewMarker(rawSetup, setupIsNew);
+                const postAsDisplay = cleanValue(ev["Post As"]);
+                const statusDisplay = cleanValue(ev["Event Status"]);
+
+                const normalizedCompany = normalizeText(ev["Company Name"]);
+                const normalizedEvent = normalizeText(ev["Event Name"]);
+                const normalizedSpace = normalizeText(ev["Function Space"]);
+                const normalizedType = normalizeText(ev["Function Type"]);
+                const normalizedSetup = normalizeText(ev["Setup Style"]);
+                const normalizedPostAs = normalizeText(ev["Post As"]);
+                const normalizedStatus = normalizeStatus(statusDisplay);
+
+                const keys = {
+                    full: buildKey([normalizedCompany, dateInfo.key, startInfo.key, endInfo.key, normalizedSpace, normalizedType, normalizedSetup, normalizedPostAs]),
+                    withoutStart: buildKey([normalizedCompany, dateInfo.key, endInfo.key, normalizedSpace, normalizedType, normalizedSetup, normalizedPostAs]),
+                    withoutEnd: buildKey([normalizedCompany, dateInfo.key, startInfo.key, normalizedSpace, normalizedType, normalizedSetup, normalizedPostAs]),
+                    withoutTime: buildKey([normalizedCompany, dateInfo.key, normalizedSpace, normalizedType, normalizedSetup, normalizedPostAs]),
+                    withoutSpace: buildKey([normalizedCompany, dateInfo.key, startInfo.key, endInfo.key, normalizedType, normalizedSetup, normalizedPostAs]),
+                    withoutType: buildKey([normalizedCompany, dateInfo.key, startInfo.key, endInfo.key, normalizedSpace, normalizedSetup, normalizedPostAs]),
+                    withoutSetup: buildKey([normalizedCompany, dateInfo.key, startInfo.key, endInfo.key, normalizedSpace, normalizedType, normalizedPostAs]),
+                    withoutPost: buildKey([normalizedCompany, dateInfo.key, startInfo.key, endInfo.key, normalizedSpace, normalizedType, normalizedSetup]),
+                    eventTitle: normalizedEvent ? buildKey([normalizedCompany, dateInfo.key, normalizedEvent]) : "",
+                    postTitle: normalizedPostAs ? buildKey([normalizedCompany, dateInfo.key, normalizedPostAs]) : "",
+                    companyDate: buildKey([normalizedCompany, dateInfo.key])
+                };
+
+                return {
+                    index,
+                    normalized: {
+                        company: normalizedCompany,
+                        event: normalizedEvent,
+                        dateKey: dateInfo.key,
+                        start: startInfo.key,
+                        end: endInfo.key,
+                        startMinutes: startInfo.minutes,
+                        endMinutes: endInfo.minutes,
+                        space: normalizedSpace,
+                        type: normalizedType,
+                        setup: normalizedSetup,
+                        postAs: normalizedPostAs,
+                        status: normalizedStatus
+                    },
+                    display: {
+                        date: dateInfo.display,
+                        start: startInfo.display,
+                        end: endInfo.display,
+                        company: companyDisplay,
+                        event: eventDisplay,
+                        space: spaceDisplay,
+                        type: typeDisplay,
+                        setup: setupDisplay,
+                        postAs: postAsDisplay,
+                        status: statusDisplay
+                    },
+                    keys,
+                    dateValue: dateInfo.parsed ? dateInfo.parsed.getTime() : Infinity,
+                    startValue: startInfo.minutes != null ? startInfo.minutes : Infinity,
+                    endValue: endInfo.minutes != null ? endInfo.minutes : Infinity,
+                    matched: false
+                };
+            };
+
+            const previousEvents = reportB.map((ev, index) => buildEvent(ev, index)).filter(Boolean);
+            const newestEvents = reportA.map((ev, index) => buildEvent(ev, index)).filter(Boolean);
+
+            if (!previousEvents.length && !newestEvents.length) {
                 container.innerHTML = "<p style='opacity:.7'>✅ No changes detected between the reports.</p>";
                 return;
             }
 
-            for (const company of Object.keys(companyGroups)) {
-                const compHeader = document.createElement("div");
-                compHeader.className = "company-header";
-                compHeader.textContent = company;
-                container.appendChild(compHeader);
+            const compareNumbers = (a, b) => {
+                const valA = Number.isFinite(a) ? a : Infinity;
+                const valB = Number.isFinite(b) ? b : Infinity;
+                if (valA === valB) return 0;
+                return valA < valB ? -1 : 1;
+            };
 
-                for (const event of Object.keys(companyGroups[company])) {
-                    const evHeader = document.createElement("div");
-                    evHeader.className = "event-header";
-                    evHeader.textContent = event;
-                    container.appendChild(evHeader);
+            const compareStable = (a, b) => {
+                const dateDiff = compareNumbers(a.dateValue, b.dateValue);
+                if (dateDiff) return dateDiff;
+                const startDiff = compareNumbers(a.startValue, b.startValue);
+                if (startDiff) return startDiff;
+                const endDiff = compareNumbers(a.endValue, b.endValue);
+                if (endDiff) return endDiff;
+                const spaceDiff = a.normalized.space.localeCompare(b.normalized.space);
+                if (spaceDiff) return spaceDiff;
+                const typeDiff = a.normalized.type.localeCompare(b.normalized.type);
+                if (typeDiff) return typeDiff;
+                const setupDiff = a.normalized.setup.localeCompare(b.normalized.setup);
+                if (setupDiff) return setupDiff;
+                const postDiff = a.normalized.postAs.localeCompare(b.normalized.postAs);
+                if (postDiff) return postDiff;
+                const companyDiff = a.normalized.company.localeCompare(b.normalized.company);
+                if (companyDiff) return companyDiff;
+                return a.normalized.event.localeCompare(b.normalized.event);
+            };
 
-                    companyGroups[company][event].forEach(change => {
-                        const card = document.createElement("div");
-                        card.className = "change-card";
-                        card.innerHTML = `
-            <h4>${change.space} — ${change.ftype} ${change.pas?("· "+change.pas):""}</h4>
-            <div style="font-size:.8rem;color:#555;margin-bottom:4px;">${change.date}</div>
-            <ul>
-              ${change.diffs.map(d=>
-                `<li>${d.field}:
-                  <span class="change-prev">${d.prev}</span> →
-                  <span class="change-new">${d.newest}</span>
-                </li>`).join("")}
-            </ul>`;
-                        container.appendChild(card);
+            const sortForSignature = events => events.slice().sort(compareStable);
+
+            const computeReportHash = events => {
+                const canonical = sortForSignature(events).map(ev => ({
+                    company: ev.normalized.company || "",
+                    date: ev.normalized.dateKey || "",
+                    start: ev.normalized.start || "",
+                    end: ev.normalized.end || "",
+                    space: ev.normalized.space || "",
+                    type: ev.normalized.type || "",
+                    setup: ev.normalized.setup || "",
+                    postAs: ev.normalized.postAs || "",
+                    status: ev.normalized.status || "",
+                    event: ev.normalized.event || ""
+                }));
+                const payload = JSON.stringify(canonical);
+                let hash = 0x811c9dc5;
+                for (let i = 0; i < payload.length; i++) {
+                    hash ^= payload.charCodeAt(i);
+                    hash = (hash * 0x01000193) >>> 0;
+                }
+                return hash.toString(16);
+            };
+
+            const previousHash = computeReportHash(previousEvents);
+            const newestHash = computeReportHash(newestEvents);
+
+            if (previousHash === newestHash) {
+                container.innerHTML = "<p style='opacity:.7'>✅ No changes detected between the reports.</p>";
+                return;
+            }
+
+            const variantOrder = [
+                "full",
+                "withoutStart",
+                "withoutEnd",
+                "withoutTime",
+                "withoutSpace",
+                "withoutType",
+                "withoutSetup",
+                "withoutPost",
+                "eventTitle",
+                "postTitle",
+                "companyDate"
+            ];
+
+            const indexes = variantOrder.reduce((acc, key) => {
+                acc[key] = new Map();
+                return acc;
+            }, {});
+
+            const register = ev => {
+                variantOrder.forEach(variant => {
+                    const key = ev.keys[variant];
+                    if (!key) return;
+                    if (!indexes[variant].has(key)) indexes[variant].set(key, []);
+                    indexes[variant].get(key).push(ev);
+                });
+            };
+
+            newestEvents
+                .slice()
+                .sort(compareStable)
+                .forEach(register);
+
+            const takeMatch = (variant, prevEvent) => {
+                const key = prevEvent.keys[variant];
+                if (!key) return null;
+                const bucket = indexes[variant].get(key);
+                if (!bucket) return null;
+                if (variant === "companyDate") {
+                    const available = bucket.filter(ev => !ev.matched);
+                    if (available.length !== 1) return null;
+                    const candidate = available[0];
+                    candidate.matched = true;
+                    return candidate;
+                }
+                for (const candidate of bucket) {
+                    if (!candidate.matched) {
+                        candidate.matched = true;
+                        return candidate;
+                    }
+                }
+                return null;
+            };
+
+            const makeFieldDiff = (field, prevValue, newValue) => ({
+                type: "field",
+                field,
+                prev: prevValue || "—",
+                newest: newValue || "—"
+            });
+
+            const describeEventSnapshot = snapshot => {
+                if (!snapshot) return "—";
+                const pieces = [];
+                const startLabel = snapshot.display?.start;
+                const endLabel = snapshot.display?.end;
+                if (startLabel || endLabel) {
+                    if (startLabel && endLabel) {
+                        pieces.push(`${startLabel} – ${endLabel}`);
+                    } else {
+                        pieces.push(startLabel || endLabel);
+                    }
+                }
+                if (snapshot.display?.space) pieces.push(snapshot.display.space);
+                if (snapshot.display?.setup) pieces.push(snapshot.display.setup);
+                const detail = pieces.filter(Boolean).join(" · ");
+                return detail || snapshot.display?.date || "—";
+            };
+
+            const formatHeader = (space, type) => {
+                if (space && type) return `${space} — ${type}`;
+                return space || type || "";
+            };
+
+            const buildChange = (kind, latest, previous, diffs) => {
+                const newest = latest || null;
+                const older = previous || null;
+                const companyDisplay = newest?.display.company || older?.display.company || "—";
+                const eventDisplay = newest?.display.event || older?.display.event || newest?.display.postAs || older?.display.postAs || "";
+                const postLabel = newest?.display.postAs || older?.display.postAs || "";
+                let header = "";
+
+                if (kind === "removed") {
+                    header = formatHeader(older?.display.space, older?.display.type);
+                } else if (kind === "added") {
+                    header = formatHeader(newest?.display.space, newest?.display.type);
+                } else {
+                    const prevHeader = formatHeader(older?.display.space, older?.display.type);
+                    const newHeader = formatHeader(newest?.display.space, newest?.display.type);
+                    if (newest && older && (newest.normalized.space !== older.normalized.space || newest.normalized.type !== older.normalized.type)) {
+                        header = prevHeader && newHeader ? `${prevHeader} → ${newHeader}` : newHeader || prevHeader;
+                    } else {
+                        header = newHeader || prevHeader;
+                    }
+                }
+
+                const dateText = kind === "removed" ? (older?.display.date || "") : (newest?.display.date || "");
+                const dateValue = kind === "removed" ? (older?.dateValue ?? Infinity) : (newest?.dateValue ?? Infinity);
+                const startValue = kind === "removed" ? (older?.startValue ?? Infinity) : (newest?.startValue ?? Infinity);
+                const endValue = kind === "removed" ? (older?.endValue ?? Infinity) : (newest?.endValue ?? Infinity);
+                const rangeStart = Math.min(older?.dateValue ?? Infinity, newest?.dateValue ?? Infinity);
+                const rangeEnd = Math.max(older?.dateValue ?? -Infinity, newest?.dateValue ?? -Infinity);
+                const companyKey = newest?.normalized.company || older?.normalized.company || "";
+                const eventKey = newest?.normalized.event || older?.normalized.event || newest?.normalized.postAs || older?.normalized.postAs || "";
+
+                let badge = null;
+                if (kind === "added") {
+                    badge = { label: "New", className: "badge-new" };
+                } else if (kind === "removed") {
+                    badge = { label: "Removed", className: "badge-removed" };
+                } else if (kind === "updated") {
+                    badge = { label: "Changed", className: "badge-changed" };
+                }
+
+                return {
+                    company: companyDisplay,
+                    companyKey,
+                    eventName: eventDisplay,
+                    eventKey,
+                    header,
+                    pas: postLabel,
+                    badge,
+                    date: dateText,
+                    diffs,
+                    dateValue,
+                    startValue,
+                    endValue,
+                    rangeStart,
+                    rangeEnd
+                };
+            };
+
+            const computeDiffs = (latest, previous) => {
+                const diffs = [];
+                if (latest.normalized.type !== previous.normalized.type) {
+                    diffs.push(makeFieldDiff("Function Type", previous.display.type, latest.display.type));
+                }
+                if (latest.normalized.start !== previous.normalized.start) {
+                    diffs.push(makeFieldDiff("Start Time", previous.display.start, latest.display.start));
+                }
+                if (latest.normalized.end !== previous.normalized.end) {
+                    diffs.push(makeFieldDiff("End Time", previous.display.end, latest.display.end));
+                }
+                if (latest.normalized.space !== previous.normalized.space) {
+                    diffs.push(makeFieldDiff("Function Space", previous.display.space, latest.display.space));
+                }
+                if (latest.normalized.setup !== previous.normalized.setup) {
+                    diffs.push(makeFieldDiff("Setup Style", previous.display.setup, latest.display.setup));
+                }
+                if (latest.normalized.postAs !== previous.normalized.postAs) {
+                    diffs.push(makeFieldDiff("Post As", previous.display.postAs, latest.display.postAs));
+                }
+                if (latest.normalized.status !== previous.normalized.status) {
+                    diffs.push(makeFieldDiff("Status", previous.display.status, latest.display.status));
+                }
+                return diffs;
+            };
+
+            const changes = [];
+
+            previousEvents.forEach(prev => {
+                let match = null;
+                for (const variant of variantOrder) {
+                    match = takeMatch(variant, prev);
+                    if (match) break;
+                }
+
+                if (match) {
+                    const diffs = computeDiffs(match, prev);
+                    if (diffs.length) {
+                        changes.push(buildChange("updated", match, prev, diffs));
+                    }
+                } else {
+                    const detail = describeEventSnapshot(prev);
+                    changes.push(buildChange("removed", null, prev, [{ type: "note", message: `Event removed: ${detail}` }]));
+                }
+            });
+
+            newestEvents.forEach(ev => {
+                if (!ev.matched) {
+                    const detail = describeEventSnapshot(ev);
+                    changes.push(buildChange("added", ev, null, [{ type: "note", message: `New event added: ${detail}` }]));
+                }
+            });
+
+            if (!changes.length) {
+                container.innerHTML = "<p style='opacity:.7'>✅ No changes detected between the reports.</p>";
+                return;
+            }
+
+            const anchorValue = overlap.start.getTime();
+            const companyBuckets = new Map();
+
+            changes.forEach(change => {
+                const key = change.company || "—";
+                if (!companyBuckets.has(key)) {
+                    companyBuckets.set(key, {
+                        company: key,
+                        companyKey: change.companyKey || "",
+                        events: [],
+                        rangeStart: change.rangeStart,
+                        rangeEnd: change.rangeEnd
                     });
                 }
-            }
+                const bucket = companyBuckets.get(key);
+                bucket.events.push(change);
+                if (Number.isFinite(change.rangeStart) && (bucket.rangeStart === undefined || change.rangeStart < bucket.rangeStart)) {
+                    bucket.rangeStart = change.rangeStart;
+                }
+                if (Number.isFinite(change.rangeEnd) && (bucket.rangeEnd === undefined || change.rangeEnd > bucket.rangeEnd)) {
+                    bucket.rangeEnd = change.rangeEnd;
+                }
+            });
+
+            const companies = Array.from(companyBuckets.values()).map(bucket => {
+                const start = Number.isFinite(bucket.rangeStart) ? bucket.rangeStart : Infinity;
+                const end = Number.isFinite(bucket.rangeEnd) ? bucket.rangeEnd : -Infinity;
+                bucket.inHouse = start <= anchorValue && end >= anchorValue;
+                bucket.startSort = start;
+                return bucket;
+            }).sort((a, b) => {
+                if (a.inHouse !== b.inHouse) return a.inHouse ? -1 : 1;
+                const startCompare = compareNumbers(a.startSort, b.startSort);
+                if (startCompare) return startCompare;
+                return (a.companyKey || "").localeCompare(b.companyKey || "");
+            });
+
+            companies.forEach(bucket => {
+                const compHeader = document.createElement("div");
+                compHeader.className = "company-header";
+                compHeader.textContent = bucket.company;
+                container.appendChild(compHeader);
+
+                bucket.events.sort((a, b) => {
+                    const dateCompare = compareNumbers(a.dateValue, b.dateValue);
+                    if (dateCompare) return dateCompare;
+                    const startCompare = compareNumbers(a.startValue, b.startValue);
+                    if (startCompare) return startCompare;
+                    const endCompare = compareNumbers(a.endValue, b.endValue);
+                    if (endCompare) return endCompare;
+                    return (a.eventKey || "").localeCompare(b.eventKey || "");
+                });
+
+                let lastEventKey = null;
+                bucket.events.forEach(change => {
+                    if (change.eventName && change.eventKey !== lastEventKey) {
+                        const eventHeader = document.createElement("div");
+                        eventHeader.className = "event-header";
+                        eventHeader.textContent = change.eventName;
+                        container.appendChild(eventHeader);
+                        lastEventKey = change.eventKey;
+                    } else if (change.eventKey !== lastEventKey) {
+                        lastEventKey = change.eventKey;
+                    }
+
+                    const card = document.createElement("div");
+                    card.className = "change-card";
+                    const badgeHtml = change.badge ? `<span class="badge ${change.badge.className}">${change.badge.label}</span>` : "";
+                    const headerText = (change.header || "").trim();
+                    const hasHeaderText = headerText.length > 0;
+                    const postSpacing = change.pas ? (hasHeaderText ? " " : (badgeHtml ? " " : "")) : "";
+                    const postPrefix = change.pas ? (hasHeaderText ? "· " : "") : "";
+                    const postHtml = change.pas ? `${postSpacing}<span class="post-label">${postPrefix}${change.pas}</span>` : "";
+                    card.innerHTML = `
+            <h4>${badgeHtml}${headerText}${postHtml}</h4>
+            <div style="font-size:.8rem;color:#555;margin-bottom:4px;">${change.date}</div>
+            <ul>
+              ${change.diffs.map(d => {
+                        if (d.type === "note") {
+                            return `<li>${d.message}</li>`;
+                        }
+                        const label = d.field ? `${d.field}: ` : "";
+                        const prev = d.prev !== undefined ? `<span class="change-prev">${d.prev}</span>` : "";
+                        const newest = d.newest !== undefined ? `<span class="change-new">${d.newest}</span>` : "";
+                        const arrow = prev && newest ? " → " : "";
+                        return `<li>${label}${prev}${arrow}${newest}</li>`;
+                    }).join("") }
+            </ul>`;
+                    container.appendChild(card);
+                });
+            });
         }
-
-
         /* ========= FORECAST (unchanged) ========= */
         function renderForecast() {
             const host = document.getElementById("forecast");
@@ -2105,21 +2626,19 @@
                 });
 
                 let currentY = null;
-                let parts = [];
+                let row = [];
                 items.forEach(item => {
                     if (currentY === null || Math.abs(item.y - currentY) <= 2) {
-                        parts.push(item.text);
+                        row.push({ text: item.text, x: item.x });
                         currentY = item.y;
                     } else {
-                        const normalized = parts.join(' ').replace(/\s+/g, ' ').trim();
-                        if (normalized) lines.push(normalized);
-                        parts = [item.text];
+                        if (row.length) lines.push(row);
+                        row = [{ text: item.text, x: item.x }];
                         currentY = item.y;
                     }
                 });
-                if (parts.length) {
-                    const normalized = parts.join(' ').replace(/\s+/g, ' ').trim();
-                    if (normalized) lines.push(normalized);
+                if (row.length) {
+                    lines.push(row);
                 }
             }
 
@@ -2137,30 +2656,106 @@
             let inEventHeader = false;
             let inEventBody = false;
             const lastSpaceByEvent = new Map();
+            const COLUMN_CLUSTER_TOLERANCE = 18;
 
-            for (const rawLine of lines) {
-                const line = rawLine.trim();
-                if (!line) {
+            const clusterColumns = rowParts => {
+                const sorted = [...rowParts].sort((a, b) => a.x - b.x);
+                const clusters = [];
+                sorted.forEach(item => {
+                    const token = item.text.trim();
+                    if (!token || /^[-–—]$/.test(token)) return;
+                    if (!clusters.length) {
+                        clusters.push({ x: item.x, tokens: [token] });
+                        return;
+                    }
+                    const last = clusters[clusters.length - 1];
+                    if (Math.abs(item.x - last.x) <= COLUMN_CLUSTER_TOLERANCE) {
+                        last.tokens.push(token);
+                    } else {
+                        clusters.push({ x: item.x, tokens: [token] });
+                    }
+                });
+                return clusters.map((cluster, idx) => ({
+                    idx,
+                    x: cluster.x,
+                    text: cluster.tokens.join(' ').replace(/\s+/g, ' ').trim()
+                })).filter(col => col.text);
+            };
+
+            const fallbackFromRegex = text => {
+                const match = text.match(TIME_RANGE_RE);
+                if (!match) return null;
+                let remainder = text.slice(match.index + match[0].length).trim();
+                if (!remainder) return null;
+
+                const countsMatch = remainder.match(/(?:\d+|__)(?:\s*\/\s*(?:\d+|__)){2,3}\s*$/);
+                if (countsMatch) {
+                    remainder = remainder.slice(0, countsMatch.index).trim();
+                }
+
+                let orderNumber = null;
+                const orderMatch = remainder.match(/(\d{4,})\s*$/);
+                if (orderMatch) {
+                    orderNumber = orderMatch[1];
+                    remainder = remainder.slice(0, orderMatch.index).trim();
+                }
+
+                let setupStyle = "";
+                const sortedSetups = [...SETUP_STYLES].sort((a, b) => b.length - a.length);
+                for (const setup of sortedSetups) {
+                    const setupRe = new RegExp(`(?:^|\s)${escapeRegExp(setup)}$`, "i");
+                    const setupMatch = remainder.match(setupRe);
+                    if (setupMatch) {
+                        setupStyle = setup;
+                        remainder = remainder.slice(0, setupMatch.index).trim();
+                        break;
+                    }
+                }
+
+                let functionType = "";
+                const sortedTypes = [...FUNCTION_TYPES].sort((a, b) => b.length - a.length);
+                for (const type of sortedTypes) {
+                    const typeRe = new RegExp(`^${escapeRegExp(type)}\b`, "i");
+                    const typeMatch = remainder.match(typeRe);
+                    if (typeMatch) {
+                        functionType = type;
+                        remainder = remainder.slice(typeMatch[0].length).trim();
+                        break;
+                    }
+                }
+
+                const functionSpace = remainder.trim();
+                return {
+                    functionType,
+                    functionSpace,
+                    setupStyle,
+                    orderNumber
+                };
+            };
+
+            for (const parts of lines) {
+                const lineText = parts.map(item => item.text).join(' ').replace(/\s+/g, ' ').trim();
+                if (!lineText) {
                     continue;
                 }
 
-                if (line.includes("Quote #:")) {
-                    currentCompany = line.split("Quote #:")[0].trim();
+                if (lineText.includes("Quote #:")) {
+                    currentCompany = lineText.split("Quote #:")[0].trim();
                     inEventHeader = true;
                     inEventBody = false;
                     continue;
                 }
 
-                if (line.includes("Status:")) {
-                    const statusMatch = line.match(/Status:\s*(\w+)/i);
+                if (lineText.includes("Status:")) {
+                    const statusMatch = lineText.match(/Status:\s*(\w+)/i);
                     if (statusMatch) {
                         currentStatus = statusMatch[1].trim();
                     }
                     continue;
                 }
 
-                if (line.includes("Folio #:")) {
-                    const evMatch = line.match(/(.+?)\s+Folio #:/);
+                if (lineText.includes("Folio #:")) {
+                    const evMatch = lineText.match(/(.+?)\s+Folio #:/);
                     if (evMatch) {
                         currentEvent = evMatch[1].trim();
                         inEventHeader = true;
@@ -2169,12 +2764,12 @@
                     continue;
                 }
 
-                if (DATE_LINE_RE.test(line)) {
-                    currentDateStr = line.trim();
+                if (DATE_LINE_RE.test(lineText)) {
+                    currentDateStr = lineText.trim();
                     continue;
                 }
 
-                const postMatch = line.match(POST_AS_RE);
+                const postMatch = lineText.match(POST_AS_RE);
                 if (postMatch && rows.length && inEventBody) {
                     const last = rows[rows.length - 1];
                     if (last["Function Space"] && !last["Post As"]) {
@@ -2186,30 +2781,114 @@
                     continue;
                 }
 
-                const timeMatch = line.match(TIME_RANGE_RE);
-                if (!timeMatch) {
+                const timeRangeMatch = lineText.match(/^\s*(\d{1,2}:\d{2}\s?[AP]M)\s*[-–—]\s*(\d{1,2}:\d{2}\s?[AP]M)/i);
+                if (!timeRangeMatch) {
+                    continue;
+                }
+
+                const startTime = cleanTimeString(timeRangeMatch[1]);
+                const endTime = cleanTimeString(timeRangeMatch[2]);
+                if (!startTime || !endTime) {
+                    continue;
+                }
+
+                const columns = clusterColumns(parts);
+                if (!columns.length) {
                     continue;
                 }
 
                 inEventHeader = false;
                 inEventBody = true;
 
-                const startTime = cleanTimeString(timeMatch[1]);
-                const endTime = cleanTimeString(timeMatch[2]);
-                const functionType = detectFunctionType(line);
-                const setupStyle = detectSetupStyle(line);
-                let functionSpace = detectSpace(line);
-                functionSpace = expandGroupedSpace(line, functionSpace);
+                const cleanSegment = value => (value || "").replace(/\s+/g, ' ').trim();
+                const isTimeLike = value => !!value && (TIME_RANGE_RE.test(value) || /^\s*\d{1,2}:\d{2}\s*[AP]M\s*$/i.test(value));
+                const isNumericLike = value => !!value && /^[0-9]+$/.test(value.replace(/\s+/g, ''));
 
-                if (functionSpace && COUNTS_RE.test(functionSpace.trim())) {
-                    functionSpace = null;
+                const workingColumns = columns.map(col => ({ ...col }));
+
+                if (workingColumns.length && COUNTS_RE.test(workingColumns[workingColumns.length - 1].text)) {
+                    workingColumns.pop();
                 }
 
+                let orderNumber = null;
+                if (workingColumns.length > 1) {
+                    const candidate = cleanSegment(workingColumns[workingColumns.length - 1].text).replace(/\s+/g, '');
+                    if (candidate && ORDER_NUMBER_RE.test(candidate)) {
+                        orderNumber = candidate;
+                        workingColumns.pop();
+                    }
+                }
+
+                const timeColumn = workingColumns.shift();
+                if (!timeColumn) {
+                    continue;
+                }
+
+                let functionTypeRaw = cleanSegment(workingColumns.length ? workingColumns.shift().text : "");
+                let setupStyleRaw = "";
+                if (workingColumns.length) {
+                    setupStyleRaw = cleanSegment(workingColumns.pop().text);
+                }
+                const functionSpaceRaw = cleanSegment(workingColumns.map(col => col.text).join(' '));
+
+                let functionType = functionTypeRaw;
+                let functionSpace = functionSpaceRaw;
+                let setupStyle = setupStyleRaw;
+
+                let spaceSourceKnown = false;
+
+                const needsFallback = (!functionType || !functionSpace || isNumericLike(functionSpace) || isTimeLike(functionSpace) || (setupStyle && isNumericLike(setupStyle)));
+                if (needsFallback) {
+                    const regexFallback = fallbackFromRegex(lineText);
+                    if (regexFallback) {
+                        if (regexFallback.functionType) functionType = cleanSegment(regexFallback.functionType);
+                        if (regexFallback.functionSpace) functionSpace = cleanSegment(regexFallback.functionSpace);
+                        if (regexFallback.setupStyle) setupStyle = cleanSegment(regexFallback.setupStyle);
+                        if (!orderNumber && regexFallback.orderNumber) {
+                            orderNumber = regexFallback.orderNumber;
+                        }
+                    }
+                }
+
+                functionType = cleanSegment(functionType);
+                functionSpace = cleanSegment(functionSpace);
+                setupStyle = cleanSegment(setupStyle);
+
+                if (!functionSpace || isNumericLike(functionSpace) || isTimeLike(functionSpace)) {
+                    continue;
+                }
+
+                if (setupStyle && isNumericLike(setupStyle)) {
+                    setupStyle = "";
+                }
+
+                const resolveValue = (value, lookup) => {
+                    const normalized = normalizeForMatch(value);
+                    if (normalized && lookup.has(normalized)) {
+                        return { value: lookup.get(normalized), isKnown: true };
+                    }
+                    return { value, isKnown: false };
+                };
+
+                const typeResolved = resolveValue(functionType, KNOWN_TYPE_LOOKUP);
+                const setupResolved = resolveValue(setupStyle, KNOWN_SETUP_LOOKUP);
+                const spaceResolved = resolveValue(functionSpace, KNOWN_SPACE_LOOKUP);
+
+                functionType = cleanSegment(typeResolved.value);
+                setupStyle = cleanSegment(setupResolved.value);
+                functionSpace = cleanSegment(spaceResolved.value);
+                spaceSourceKnown = spaceResolved.isKnown;
+
+                let typeIsNew = !!functionType && !typeResolved.isKnown;
+                let setupIsNew = !!setupStyle && !setupResolved.isKnown;
+
                 const eventKey = `${currentCompany || ""}||${currentEvent || ""}`;
+
                 if (!functionSpace && functionType && FALLBACK_TYPES.has(functionType)) {
                     const lastSpace = lastSpaceByEvent.get(eventKey);
                     if (lastSpace) {
-                        functionSpace = lastSpace;
+                        functionSpace = lastSpace.space;
+                        spaceSourceKnown = !lastSpace.isNew;
                     }
                 }
 
@@ -2217,7 +2896,19 @@
                     continue;
                 }
 
-                lastSpaceByEvent.set(eventKey, functionSpace);
+                if (!spaceSourceKnown) {
+                    const normalizedSpace = normalizeForMatch(functionSpace);
+                    if (normalizedSpace && KNOWN_SPACE_LOOKUP.has(normalizedSpace)) {
+                        spaceSourceKnown = true;
+                    }
+                }
+
+                const spaceIsNew = !!functionSpace && !spaceSourceKnown;
+
+                typeIsNew = functionType ? !KNOWN_TYPE_LOOKUP.has(normalizeForMatch(functionType)) : false;
+                setupIsNew = setupStyle ? !KNOWN_SETUP_LOOKUP.has(normalizeForMatch(setupStyle)) : false;
+
+                lastSpaceByEvent.set(eventKey, { space: functionSpace, isNew: spaceIsNew });
 
                 rows.push({
                     "Company Name": currentCompany || "",
@@ -2230,7 +2921,12 @@
                     "Function Space": functionSpace || "",
                     "Setup Style": setupStyle || "",
                     "Post As": "",
-                    "Raw Line": line
+                    "Raw Line": lineText,
+                    "__flags": {
+                        spaceNew: !!spaceIsNew,
+                        typeNew: !!typeIsNew,
+                        setupNew: !!setupIsNew
+                    }
                 });
             }
 

@@ -2657,12 +2657,6 @@
             let inEventBody = false;
             const lastSpaceByEvent = new Map();
             const COLUMN_CLUSTER_TOLERANCE = 18;
-            const TIME_CELL_RE = /^\d{1,2}:\d{2}\s*[AP]M$/i;
-            const TIME_VALUE_RE = /(\d{1,2}:\d{2}\s*[AP]M)/i;
-
-            const looksLikeSpace = text => /room|ballroom|prefunction|salon|plaza|gallery|terrace|suite|boardroom|hall|lounge|garden|patio|veranda|atrium|club|floor|court|center|centre|rooftop|pool/i.test(text);
-            const looksLikeSetup = text => /round|theatre|theater|school|class|u-shape|hollow|conference|board|lounge|cocktail|banquet|reception|square|chevron|crescent|classroom|set/i.test(text);
-            const looksLikeType = text => /meeting|reception|breakfast|lunch|dinner|banquet|ceremony|session|breakout|general|plenary|expo|rehearsal|briefing|break|registration|setup|tear|training|seminar|wedding/i.test(text);
 
             const clusterColumns = rowParts => {
                 const sorted = [...rowParts].sort((a, b) => a.x - b.x);
@@ -2687,28 +2681,6 @@
                     text: cluster.tokens.join(' ').replace(/\s+/g, ' ').trim()
                 })).filter(col => col.text);
             };
-
-            const buildColumnMeta = columns => columns.map(col => {
-                const normalized = normalizeForMatch(col.text);
-                const compact = col.text.replace(/\s+/g, '');
-                const isTime = TIME_RANGE_RE.test(col.text) || TIME_CELL_RE.test(col.text.split(/\s*[-–—]\s*/)[0] || "");
-                const digitsOnly = compact && /^[0-9]+$/.test(compact);
-                const hasLetters = /[A-Za-z]/.test(col.text);
-                return {
-                    ...col,
-                    normalized,
-                    isTime,
-                    hasLetters,
-                    typeKnown: normalized ? KNOWN_TYPE_LOOKUP.has(normalized) : false,
-                    setupKnown: normalized ? KNOWN_SETUP_LOOKUP.has(normalized) : false,
-                    spaceKnown: normalized ? KNOWN_SPACE_LOOKUP.has(normalized) : false,
-                    looksLikeSpace: hasLetters ? looksLikeSpace(col.text) : false,
-                    looksLikeSetup: hasLetters ? looksLikeSetup(col.text) : false,
-                    looksLikeType: hasLetters ? looksLikeType(col.text) : false,
-                    isOrder: digitsOnly && ORDER_NUMBER_RE.test(compact),
-                    isCount: compact ? COUNTS_RE.test(col.text.trim()) : false
-                };
-            });
 
             const fallbackFromRegex = text => {
                 const match = text.match(TIME_RANGE_RE);
@@ -2809,21 +2781,13 @@
                     continue;
                 }
 
-                const timeRangeMatch = lineText.match(TIME_RANGE_RE);
-                const cellTimes = parts
-                    .map(item => {
-                        const match = item.text.match(TIME_VALUE_RE);
-                        return match ? cleanTimeString(match[1]) : null;
-                    })
-                    .filter(Boolean);
-
-                const hasTime = !!timeRangeMatch || cellTimes.length >= 2;
-                if (!hasTime) {
+                const timeRangeMatch = lineText.match(/^\s*(\d{1,2}:\d{2}\s?[AP]M)\s*[-–—]\s*(\d{1,2}:\d{2}\s?[AP]M)/i);
+                if (!timeRangeMatch) {
                     continue;
                 }
 
-                let startTime = timeRangeMatch ? cleanTimeString(timeRangeMatch[1]) : (cellTimes[0] || "");
-                let endTime = timeRangeMatch ? cleanTimeString(timeRangeMatch[2]) : (cellTimes[1] || "");
+                const startTime = cleanTimeString(timeRangeMatch[1]);
+                const endTime = cleanTimeString(timeRangeMatch[2]);
                 if (!startTime || !endTime) {
                     continue;
                 }
@@ -2833,178 +2797,98 @@
                     continue;
                 }
 
-                const columnMeta = buildColumnMeta(columns);
-                let timeMeta = columnMeta.find(meta => meta.idx === 0) || null;
-                const explicitTimeMeta = columnMeta.find(meta => meta.isTime);
-                if (explicitTimeMeta) {
-                    timeMeta = explicitTimeMeta;
-                }
-
                 inEventHeader = false;
                 inEventBody = true;
 
-                const remainingMetas = columnMeta
-                    .filter(meta => meta !== timeMeta)
-                    .sort((a, b) => a.idx - b.idx);
+                const cleanSegment = value => (value || "").replace(/\s+/g, ' ').trim();
+                const isTimeLike = value => !!value && (TIME_RANGE_RE.test(value) || /^\s*\d{1,2}:\d{2}\s*[AP]M\s*$/i.test(value));
+                const isNumericLike = value => !!value && /^[0-9]+$/.test(value.replace(/\s+/g, ''));
 
-                const takeMeta = predicate => {
-                    const index = remainingMetas.findIndex(predicate);
-                    if (index === -1) return null;
-                    return remainingMetas.splice(index, 1)[0];
-                };
+                const workingColumns = columns.map(col => ({ ...col }));
 
-                // remove trailing counts/order number columns so they do not get mis-assigned
-                while (takeMeta(meta => meta.isCount)) {}
-                while (takeMeta(meta => meta.isOrder)) {}
-
-                let spaceMeta = takeMeta(meta => meta.spaceKnown);
-                if (!spaceMeta) spaceMeta = takeMeta(meta => meta.looksLikeSpace && meta.hasLetters);
-
-                let typeMeta = takeMeta(meta => meta.typeKnown);
-                if (!typeMeta) typeMeta = takeMeta(meta => meta.looksLikeType && meta.hasLetters);
-
-                let setupMeta = takeMeta(meta => meta.setupKnown);
-                if (!setupMeta) setupMeta = takeMeta(meta => meta.looksLikeSetup && meta.hasLetters);
-
-                const fallbackTextMeta = predicate => {
-                    const idx = remainingMetas.findIndex(predicate);
-                    if (idx === -1) return null;
-                    return remainingMetas.splice(idx, 1)[0];
-                };
-
-                if (!spaceMeta) {
-                    spaceMeta = fallbackTextMeta(meta => meta.hasLetters);
-                }
-                if (!typeMeta) {
-                    typeMeta = fallbackTextMeta(meta => meta.hasLetters);
-                }
-                if (!setupMeta) {
-                    setupMeta = fallbackTextMeta(meta => meta.hasLetters);
+                if (workingColumns.length && COUNTS_RE.test(workingColumns[workingColumns.length - 1].text)) {
+                    workingColumns.pop();
                 }
 
-                const columnTypeText = typeMeta ? typeMeta.text : "";
-                const columnSpaceText = spaceMeta ? spaceMeta.text : "";
-                const columnSetupText = setupMeta ? setupMeta.text : "";
-
-                const detectedType = detectFunctionType(lineText);
-                const regexFallback = fallbackFromRegex(lineText);
-                let functionType = "";
-                if (columnTypeText) {
-                    const normalizedType = normalizeForMatch(columnTypeText);
-                    if (normalizedType && KNOWN_TYPE_LOOKUP.has(normalizedType)) {
-                        functionType = KNOWN_TYPE_LOOKUP.get(normalizedType);
-                    } else {
-                        functionType = columnTypeText;
-                    }
-                } else if (detectedType) {
-                    functionType = detectedType;
-                } else if (regexFallback?.functionType) {
-                    const fallbackNorm = normalizeForMatch(regexFallback.functionType);
-                    if (fallbackNorm && KNOWN_TYPE_LOOKUP.has(fallbackNorm)) {
-                        functionType = KNOWN_TYPE_LOOKUP.get(fallbackNorm);
-                    } else {
-                        functionType = regexFallback.functionType;
+                let orderNumber = null;
+                if (workingColumns.length > 1) {
+                    const candidate = cleanSegment(workingColumns[workingColumns.length - 1].text).replace(/\s+/g, '');
+                    if (candidate && ORDER_NUMBER_RE.test(candidate)) {
+                        orderNumber = candidate;
+                        workingColumns.pop();
                     }
                 }
 
-                const detectedSetup = detectSetupStyle(lineText);
-                let setupStyle = "";
-                if (columnSetupText) {
-                    const normalizedSetup = normalizeForMatch(columnSetupText);
-                    if (normalizedSetup && KNOWN_SETUP_LOOKUP.has(normalizedSetup)) {
-                        setupStyle = KNOWN_SETUP_LOOKUP.get(normalizedSetup);
-                    } else {
-                        setupStyle = columnSetupText;
-                    }
-                } else if (detectedSetup) {
-                    setupStyle = detectedSetup;
-                } else if (regexFallback?.setupStyle) {
-                    const fallbackSetupNorm = normalizeForMatch(regexFallback.setupStyle);
-                    if (fallbackSetupNorm && KNOWN_SETUP_LOOKUP.has(fallbackSetupNorm)) {
-                        setupStyle = KNOWN_SETUP_LOOKUP.get(fallbackSetupNorm);
-                    } else {
-                        setupStyle = regexFallback.setupStyle;
-                    }
+                const timeColumn = workingColumns.shift();
+                if (!timeColumn) {
+                    continue;
                 }
 
-                let functionSpace = "";
+                let functionTypeRaw = cleanSegment(workingColumns.length ? workingColumns.shift().text : "");
+                let setupStyleRaw = "";
+                if (workingColumns.length) {
+                    setupStyleRaw = cleanSegment(workingColumns.pop().text);
+                }
+                const functionSpaceRaw = cleanSegment(workingColumns.map(col => col.text).join(' '));
+
+                let functionType = functionTypeRaw;
+                let functionSpace = functionSpaceRaw;
+                let setupStyle = setupStyleRaw;
+
                 let spaceSourceKnown = false;
-                if (columnSpaceText) {
-                    if (spaceMeta?.spaceKnown) {
-                        spaceSourceKnown = true;
-                    }
-                    const normalizedSpaceColumn = normalizeForMatch(columnSpaceText);
-                    if (normalizedSpaceColumn && KNOWN_SPACE_LOOKUP.has(normalizedSpaceColumn)) {
-                        functionSpace = KNOWN_SPACE_LOOKUP.get(normalizedSpaceColumn);
-                        spaceSourceKnown = true;
-                    } else {
-                        functionSpace = columnSpaceText;
-                    }
-                } else {
-                    const detectedSpace = detectSpace(lineText);
-                    if (detectedSpace) {
-                        const expanded = expandGroupedSpace(lineText, detectedSpace) || detectedSpace;
-                        functionSpace = expanded;
-                        spaceSourceKnown = true;
-                    } else if (regexFallback?.functionSpace) {
-                        functionSpace = regexFallback.functionSpace;
-                    }
-                }
 
-                if (functionSpace && !spaceSourceKnown) {
-                    const normalizedSpace = normalizeForMatch(functionSpace);
-                    if (normalizedSpace && KNOWN_SPACE_LOOKUP.has(normalizedSpace)) {
-                        functionSpace = KNOWN_SPACE_LOOKUP.get(normalizedSpace);
-                        spaceSourceKnown = true;
-                    } else if (functionSpace.includes("(") && !spaceSourceKnown) {
-                        const base = functionSpace.split("(")[0].trim();
-                        const baseNorm = normalizeForMatch(base);
-                        if (baseNorm && KNOWN_SPACE_LOOKUP.has(baseNorm)) {
-                            spaceSourceKnown = true;
+                const needsFallback = (!functionType || !functionSpace || isNumericLike(functionSpace) || isTimeLike(functionSpace) || (setupStyle && isNumericLike(setupStyle)));
+                if (needsFallback) {
+                    const regexFallback = fallbackFromRegex(lineText);
+                    if (regexFallback) {
+                        if (regexFallback.functionType) functionType = cleanSegment(regexFallback.functionType);
+                        if (regexFallback.functionSpace) functionSpace = cleanSegment(regexFallback.functionSpace);
+                        if (regexFallback.setupStyle) setupStyle = cleanSegment(regexFallback.setupStyle);
+                        if (!orderNumber && regexFallback.orderNumber) {
+                            orderNumber = regexFallback.orderNumber;
                         }
                     }
                 }
 
-                functionType = functionType ? functionType.trim() : "";
-                setupStyle = setupStyle ? setupStyle.trim() : "";
-                functionSpace = functionSpace ? functionSpace.trim() : "";
+                functionType = cleanSegment(functionType);
+                functionSpace = cleanSegment(functionSpace);
+                setupStyle = cleanSegment(setupStyle);
 
-                const typeHasLetters = /[A-Za-z]/.test(functionType);
-                const setupHasLetters = /[A-Za-z]/.test(setupStyle);
-                if (functionType && !typeHasLetters) functionType = "";
-                if (setupStyle && !setupHasLetters) setupStyle = "";
-
-                const invalidSpace = !functionSpace || !/[A-Za-z]/.test(functionSpace) || TIME_RANGE_RE.test(functionSpace) || TIME_CELL_RE.test(functionSpace) || ORDER_NUMBER_RE.test(functionSpace.replace(/\s+/g, '')) || COUNTS_RE.test(functionSpace.trim());
-                if (invalidSpace) {
-                    functionSpace = null;
-                    spaceSourceKnown = false;
+                if (!functionSpace || isNumericLike(functionSpace) || isTimeLike(functionSpace)) {
+                    continue;
                 }
 
-                if ((!functionSpace || !spaceSourceKnown) && regexFallback?.functionSpace) {
-                    const fallbackSpace = regexFallback.functionSpace.trim();
-                    if (fallbackSpace && /[A-Za-z]/.test(fallbackSpace) && !TIME_RANGE_RE.test(fallbackSpace)) {
-                        const fallbackNorm = normalizeForMatch(fallbackSpace);
-                        if (fallbackNorm && KNOWN_SPACE_LOOKUP.has(fallbackNorm)) {
-                            functionSpace = KNOWN_SPACE_LOOKUP.get(fallbackNorm);
-                            spaceSourceKnown = true;
-                        } else {
-                            functionSpace = fallbackSpace;
-                            spaceSourceKnown = false;
-                        }
+                if (setupStyle && isNumericLike(setupStyle)) {
+                    setupStyle = "";
+                }
+
+                const resolveValue = (value, lookup) => {
+                    const normalized = normalizeForMatch(value);
+                    if (normalized && lookup.has(normalized)) {
+                        return { value: lookup.get(normalized), isKnown: true };
                     }
-                }
+                    return { value, isKnown: false };
+                };
+
+                const typeResolved = resolveValue(functionType, KNOWN_TYPE_LOOKUP);
+                const setupResolved = resolveValue(setupStyle, KNOWN_SETUP_LOOKUP);
+                const spaceResolved = resolveValue(functionSpace, KNOWN_SPACE_LOOKUP);
+
+                functionType = cleanSegment(typeResolved.value);
+                setupStyle = cleanSegment(setupResolved.value);
+                functionSpace = cleanSegment(spaceResolved.value);
+                spaceSourceKnown = spaceResolved.isKnown;
+
+                let typeIsNew = !!functionType && !typeResolved.isKnown;
+                let setupIsNew = !!setupStyle && !setupResolved.isKnown;
 
                 const eventKey = `${currentCompany || ""}||${currentEvent || ""}`;
-                let spaceIsNew = false;
-                if (functionSpace) {
-                    const normalizedSpace = normalizeForMatch(functionSpace);
-                    spaceIsNew = !(spaceSourceKnown || KNOWN_SPACE_LOOKUP.has(normalizedSpace));
-                }
+
                 if (!functionSpace && functionType && FALLBACK_TYPES.has(functionType)) {
                     const lastSpace = lastSpaceByEvent.get(eventKey);
                     if (lastSpace) {
                         functionSpace = lastSpace.space;
-                        spaceIsNew = lastSpace.isNew;
+                        spaceSourceKnown = !lastSpace.isNew;
                     }
                 }
 
@@ -3012,8 +2896,17 @@
                     continue;
                 }
 
-                const typeIsNew = functionType ? !KNOWN_TYPE_LOOKUP.has(normalizeForMatch(functionType)) : false;
-                const setupIsNew = setupStyle ? !KNOWN_SETUP_LOOKUP.has(normalizeForMatch(setupStyle)) : false;
+                if (!spaceSourceKnown) {
+                    const normalizedSpace = normalizeForMatch(functionSpace);
+                    if (normalizedSpace && KNOWN_SPACE_LOOKUP.has(normalizedSpace)) {
+                        spaceSourceKnown = true;
+                    }
+                }
+
+                const spaceIsNew = !!functionSpace && !spaceSourceKnown;
+
+                typeIsNew = functionType ? !KNOWN_TYPE_LOOKUP.has(normalizeForMatch(functionType)) : false;
+                setupIsNew = setupStyle ? !KNOWN_SETUP_LOOKUP.has(normalizeForMatch(setupStyle)) : false;
 
                 lastSpaceByEvent.set(eventKey, { space: functionSpace, isNew: spaceIsNew });
 

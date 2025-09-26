@@ -1156,7 +1156,8 @@
 
         const TIME_RANGE_RE = /(\d{1,2}:\d{2}\s?[AP]M)\s*[-–—]\s*(\d{1,2}:\d{2}\s?[AP]M)/i;
         const DATE_LINE_RE = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), .* \d{4}$/i;
-        const COUNTS_RE = /^\d+\/\d+\/(?:\d+|__)$/;
+        const COUNTS_RE = /^\s*(?:\d+|__)(?:\s*\/\s*(?:\d+|__)){2,3}\s*$/;
+        const ORDER_NUMBER_RE = /^\d+$/;
         const POST_AS_RE = /Post As[:\-]?\s*(.+)/i;
 
         function escapeRegExp(str) {
@@ -2655,23 +2656,110 @@
             let inEventHeader = false;
             let inEventBody = false;
             const lastSpaceByEvent = new Map();
-            const columnAnchors = [];
-            const COLUMN_TOLERANCE = 18;
+            const COLUMN_CLUSTER_TOLERANCE = 18;
             const TIME_CELL_RE = /^\d{1,2}:\d{2}\s*[AP]M$/i;
             const TIME_VALUE_RE = /(\d{1,2}:\d{2}\s*[AP]M)/i;
 
-            const columnIndexFor = x => {
-                for (let i = 0; i < columnAnchors.length; i++) {
-                    if (Math.abs(columnAnchors[i] - x) <= COLUMN_TOLERANCE) {
-                        return i;
-                    }
-                }
-                columnAnchors.push(x);
-                return columnAnchors.length - 1;
-            };
-
             const looksLikeSpace = text => /room|ballroom|prefunction|salon|plaza|gallery|terrace|suite|boardroom|hall|lounge|garden|patio|veranda|atrium|club|floor|court|center|centre|rooftop|pool/i.test(text);
             const looksLikeSetup = text => /round|theatre|theater|school|class|u-shape|hollow|conference|board|lounge|cocktail|banquet|reception|square|chevron|crescent|classroom|set/i.test(text);
+            const looksLikeType = text => /meeting|reception|breakfast|lunch|dinner|banquet|ceremony|session|breakout|general|plenary|expo|rehearsal|briefing|break|registration|setup|tear|training|seminar|wedding/i.test(text);
+
+            const clusterColumns = rowParts => {
+                const sorted = [...rowParts].sort((a, b) => a.x - b.x);
+                const clusters = [];
+                sorted.forEach(item => {
+                    const token = item.text.trim();
+                    if (!token || /^[-–—]$/.test(token)) return;
+                    if (!clusters.length) {
+                        clusters.push({ x: item.x, tokens: [token] });
+                        return;
+                    }
+                    const last = clusters[clusters.length - 1];
+                    if (Math.abs(item.x - last.x) <= COLUMN_CLUSTER_TOLERANCE) {
+                        last.tokens.push(token);
+                    } else {
+                        clusters.push({ x: item.x, tokens: [token] });
+                    }
+                });
+                return clusters.map((cluster, idx) => ({
+                    idx,
+                    x: cluster.x,
+                    text: cluster.tokens.join(' ').replace(/\s+/g, ' ').trim()
+                })).filter(col => col.text);
+            };
+
+            const buildColumnMeta = columns => columns.map(col => {
+                const normalized = normalizeForMatch(col.text);
+                const compact = col.text.replace(/\s+/g, '');
+                const isTime = TIME_RANGE_RE.test(col.text) || TIME_CELL_RE.test(col.text.split(/\s*[-–—]\s*/)[0] || "");
+                const digitsOnly = compact && /^[0-9]+$/.test(compact);
+                const hasLetters = /[A-Za-z]/.test(col.text);
+                return {
+                    ...col,
+                    normalized,
+                    isTime,
+                    hasLetters,
+                    typeKnown: normalized ? KNOWN_TYPE_LOOKUP.has(normalized) : false,
+                    setupKnown: normalized ? KNOWN_SETUP_LOOKUP.has(normalized) : false,
+                    spaceKnown: normalized ? KNOWN_SPACE_LOOKUP.has(normalized) : false,
+                    looksLikeSpace: hasLetters ? looksLikeSpace(col.text) : false,
+                    looksLikeSetup: hasLetters ? looksLikeSetup(col.text) : false,
+                    looksLikeType: hasLetters ? looksLikeType(col.text) : false,
+                    isOrder: digitsOnly && ORDER_NUMBER_RE.test(compact),
+                    isCount: compact ? COUNTS_RE.test(col.text.trim()) : false
+                };
+            });
+
+            const fallbackFromRegex = text => {
+                const match = text.match(TIME_RANGE_RE);
+                if (!match) return null;
+                let remainder = text.slice(match.index + match[0].length).trim();
+                if (!remainder) return null;
+
+                const countsMatch = remainder.match(/(?:\d+|__)(?:\s*\/\s*(?:\d+|__)){2,3}\s*$/);
+                if (countsMatch) {
+                    remainder = remainder.slice(0, countsMatch.index).trim();
+                }
+
+                let orderNumber = null;
+                const orderMatch = remainder.match(/(\d{4,})\s*$/);
+                if (orderMatch) {
+                    orderNumber = orderMatch[1];
+                    remainder = remainder.slice(0, orderMatch.index).trim();
+                }
+
+                let setupStyle = "";
+                const sortedSetups = [...SETUP_STYLES].sort((a, b) => b.length - a.length);
+                for (const setup of sortedSetups) {
+                    const setupRe = new RegExp(`(?:^|\s)${escapeRegExp(setup)}$`, "i");
+                    const setupMatch = remainder.match(setupRe);
+                    if (setupMatch) {
+                        setupStyle = setup;
+                        remainder = remainder.slice(0, setupMatch.index).trim();
+                        break;
+                    }
+                }
+
+                let functionType = "";
+                const sortedTypes = [...FUNCTION_TYPES].sort((a, b) => b.length - a.length);
+                for (const type of sortedTypes) {
+                    const typeRe = new RegExp(`^${escapeRegExp(type)}\b`, "i");
+                    const typeMatch = remainder.match(typeRe);
+                    if (typeMatch) {
+                        functionType = type;
+                        remainder = remainder.slice(typeMatch[0].length).trim();
+                        break;
+                    }
+                }
+
+                const functionSpace = remainder.trim();
+                return {
+                    functionType,
+                    functionSpace,
+                    setupStyle,
+                    orderNumber
+                };
+            };
 
             for (const parts of lines) {
                 const lineText = parts.map(item => item.text).join(' ').replace(/\s+/g, ' ').trim();
@@ -2740,82 +2828,66 @@
                     continue;
                 }
 
-                const columns = [];
-                parts.forEach(item => {
-                    const token = item.text;
-                    if (!token || /^[-–—]$/.test(token)) {
-                        return;
-                    }
-                    const idx = columnIndexFor(item.x);
-                    if (!columns[idx]) {
-                        columns[idx] = [];
-                    }
-                    columns[idx].push(token);
-                });
+                const columns = clusterColumns(parts);
+                if (!columns.length) {
+                    continue;
+                }
 
-                const columnTexts = columns.map(col => (col || []).join(' ').replace(/\s+/g, ' ').trim());
-                const columnMeta = columnTexts.map((text, idx) => {
-                    const normalized = normalizeForMatch(text);
-                    const isEmpty = !text;
-                    const isTime = !!text && TIME_CELL_RE.test(text);
-                    const normalizedNoSpace = text.replace(/\s+/g, '');
-                    return {
-                        idx,
-                        text,
-                        normalized,
-                        isEmpty,
-                        isTime,
-                        typeKnown: normalized ? KNOWN_TYPE_LOOKUP.has(normalized) : false,
-                        setupKnown: normalized ? KNOWN_SETUP_LOOKUP.has(normalized) : false,
-                        spaceKnown: normalized ? KNOWN_SPACE_LOOKUP.has(normalized) : false,
-                        looksLikeSpace: text ? looksLikeSpace(text) : false,
-                        looksLikeSetup: text ? looksLikeSetup(text) : false,
-                        isCount: normalizedNoSpace ? COUNTS_RE.test(normalizedNoSpace) : false
-                    };
-                });
-
-                let startIndex = null;
-                let endIndex = null;
-                columnMeta.forEach(meta => {
-                    if (meta.isTime && startIndex === null) {
-                        startIndex = meta.idx;
-                    } else if (meta.isTime && endIndex === null) {
-                        endIndex = meta.idx;
-                    }
-                });
+                const columnMeta = buildColumnMeta(columns);
+                let timeMeta = columnMeta.find(meta => meta.idx === 0) || null;
+                const explicitTimeMeta = columnMeta.find(meta => meta.isTime);
+                if (explicitTimeMeta) {
+                    timeMeta = explicitTimeMeta;
+                }
 
                 inEventHeader = false;
                 inEventBody = true;
 
-                const valueColumns = columnMeta
-                    .filter(meta => !meta.isEmpty && !meta.isTime && !meta.isCount)
+                const remainingMetas = columnMeta
+                    .filter(meta => meta !== timeMeta)
                     .sort((a, b) => a.idx - b.idx);
 
-                const remainingMetas = [...valueColumns];
-                const pullMeta = predicate => {
+                const takeMeta = predicate => {
                     const index = remainingMetas.findIndex(predicate);
                     if (index === -1) return null;
                     return remainingMetas.splice(index, 1)[0];
                 };
 
-                let spaceMeta = pullMeta(meta => meta.spaceKnown);
-                if (!spaceMeta) spaceMeta = pullMeta(meta => meta.looksLikeSpace);
+                // remove trailing counts/order number columns so they do not get mis-assigned
+                while (takeMeta(meta => meta.isCount)) {}
+                while (takeMeta(meta => meta.isOrder)) {}
 
-                let typeMeta = pullMeta(meta => meta.typeKnown);
-                if (!typeMeta) typeMeta = pullMeta(meta => !meta.looksLikeSpace && !meta.looksLikeSetup);
+                let spaceMeta = takeMeta(meta => meta.spaceKnown);
+                if (!spaceMeta) spaceMeta = takeMeta(meta => meta.looksLikeSpace && meta.hasLetters);
 
-                let setupMeta = pullMeta(meta => meta.setupKnown);
-                if (!setupMeta) setupMeta = pullMeta(meta => meta.looksLikeSetup);
+                let typeMeta = takeMeta(meta => meta.typeKnown);
+                if (!typeMeta) typeMeta = takeMeta(meta => meta.looksLikeType && meta.hasLetters);
 
-                if (!spaceMeta && remainingMetas.length) spaceMeta = remainingMetas.shift();
-                if (!typeMeta && remainingMetas.length) typeMeta = remainingMetas.shift();
-                if (!setupMeta && remainingMetas.length) setupMeta = remainingMetas.shift();
+                let setupMeta = takeMeta(meta => meta.setupKnown);
+                if (!setupMeta) setupMeta = takeMeta(meta => meta.looksLikeSetup && meta.hasLetters);
+
+                const fallbackTextMeta = predicate => {
+                    const idx = remainingMetas.findIndex(predicate);
+                    if (idx === -1) return null;
+                    return remainingMetas.splice(idx, 1)[0];
+                };
+
+                if (!spaceMeta) {
+                    spaceMeta = fallbackTextMeta(meta => meta.hasLetters);
+                }
+                if (!typeMeta) {
+                    typeMeta = fallbackTextMeta(meta => meta.hasLetters);
+                }
+                if (!setupMeta) {
+                    setupMeta = fallbackTextMeta(meta => meta.hasLetters);
+                }
 
                 const columnTypeText = typeMeta ? typeMeta.text : "";
                 const columnSpaceText = spaceMeta ? spaceMeta.text : "";
                 const columnSetupText = setupMeta ? setupMeta.text : "";
 
                 const detectedType = detectFunctionType(lineText);
+                const regexFallback = fallbackFromRegex(lineText);
                 let functionType = "";
                 if (columnTypeText) {
                     const normalizedType = normalizeForMatch(columnTypeText);
@@ -2826,6 +2898,13 @@
                     }
                 } else if (detectedType) {
                     functionType = detectedType;
+                } else if (regexFallback?.functionType) {
+                    const fallbackNorm = normalizeForMatch(regexFallback.functionType);
+                    if (fallbackNorm && KNOWN_TYPE_LOOKUP.has(fallbackNorm)) {
+                        functionType = KNOWN_TYPE_LOOKUP.get(fallbackNorm);
+                    } else {
+                        functionType = regexFallback.functionType;
+                    }
                 }
 
                 const detectedSetup = detectSetupStyle(lineText);
@@ -2839,6 +2918,13 @@
                     }
                 } else if (detectedSetup) {
                     setupStyle = detectedSetup;
+                } else if (regexFallback?.setupStyle) {
+                    const fallbackSetupNorm = normalizeForMatch(regexFallback.setupStyle);
+                    if (fallbackSetupNorm && KNOWN_SETUP_LOOKUP.has(fallbackSetupNorm)) {
+                        setupStyle = KNOWN_SETUP_LOOKUP.get(fallbackSetupNorm);
+                    } else {
+                        setupStyle = regexFallback.setupStyle;
+                    }
                 }
 
                 let functionSpace = "";
@@ -2860,6 +2946,8 @@
                         const expanded = expandGroupedSpace(lineText, detectedSpace) || detectedSpace;
                         functionSpace = expanded;
                         spaceSourceKnown = true;
+                    } else if (regexFallback?.functionSpace) {
+                        functionSpace = regexFallback.functionSpace;
                     }
                 }
 
@@ -2881,8 +2969,29 @@
                 setupStyle = setupStyle ? setupStyle.trim() : "";
                 functionSpace = functionSpace ? functionSpace.trim() : "";
 
-                if (functionSpace && COUNTS_RE.test(functionSpace.replace(/\s+/g, ''))) {
+                const typeHasLetters = /[A-Za-z]/.test(functionType);
+                const setupHasLetters = /[A-Za-z]/.test(setupStyle);
+                if (functionType && !typeHasLetters) functionType = "";
+                if (setupStyle && !setupHasLetters) setupStyle = "";
+
+                const invalidSpace = !functionSpace || !/[A-Za-z]/.test(functionSpace) || TIME_RANGE_RE.test(functionSpace) || TIME_CELL_RE.test(functionSpace) || ORDER_NUMBER_RE.test(functionSpace.replace(/\s+/g, '')) || COUNTS_RE.test(functionSpace.trim());
+                if (invalidSpace) {
                     functionSpace = null;
+                    spaceSourceKnown = false;
+                }
+
+                if ((!functionSpace || !spaceSourceKnown) && regexFallback?.functionSpace) {
+                    const fallbackSpace = regexFallback.functionSpace.trim();
+                    if (fallbackSpace && /[A-Za-z]/.test(fallbackSpace) && !TIME_RANGE_RE.test(fallbackSpace)) {
+                        const fallbackNorm = normalizeForMatch(fallbackSpace);
+                        if (fallbackNorm && KNOWN_SPACE_LOOKUP.has(fallbackNorm)) {
+                            functionSpace = KNOWN_SPACE_LOOKUP.get(fallbackNorm);
+                            spaceSourceKnown = true;
+                        } else {
+                            functionSpace = fallbackSpace;
+                            spaceSourceKnown = false;
+                        }
+                    }
                 }
 
                 const eventKey = `${currentCompany || ""}||${currentEvent || ""}`;
